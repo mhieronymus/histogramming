@@ -7,10 +7,7 @@
 #ifndef __HISTOGRAM_ATOMICSHINCLUDED__
 #define __HISTOGRAM_ATOMICSHINCLUDED__
 
-#define %(c_precision_def)s
-#define fType %(c_ftype)s
-#define iType %(c_itype)s
-#define N_FLAT_BINS %(n_flat_bins)i
+
 
 __device__ fType __ull_as_fType(unsigned long long a)
 {

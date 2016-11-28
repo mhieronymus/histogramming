@@ -1,12 +1,31 @@
 
-#include "histogram_atomics.cuh"
+//#include "histogram_atomics.cuh"
 #include <stdio.h>
+//#include "device_functions.h"
 
+#define %(c_precision_def)s
+#define fType %(c_ftype)s
+#define iType %(c_itype)s
+#define N_FLAT_BINS %(n_flat_bins)i
+
+__device__ fType __ull_as_fType(unsigned long long a)
+{
+    union {unsigned long long a; fType b;} u;
+    u.a = a;
+    return u.b;
+}
+
+__device__ fType __fType_as_ull(fType a)
+{
+    union {fType a; unsigned long long b;} u;
+    u.a = a;
+    return u.b;
+}
 
 // You can use atomicCAS() to create an atomicMax for any type.
 // See https://docs.nvidia.com/cuda/cuda-c-programming-guide/ for further
 // information.
-__device__ fType atomicMaxAny(fType *adress, fType val)
+__device__ fType atomicMaxAny(fType *address, fType val)
 {
     unsigned long long int* address_as_ull = (unsigned long long int*) address;
     unsigned long long int old = *address_as_ull, assumed;
@@ -18,7 +37,7 @@ __device__ fType atomicMaxAny(fType *adress, fType val)
     return __ull_as_fType(old);
 }
 
-__device__ fType atomicMinAny(fType *adress, fType val)
+__device__ fType atomicMinAny(fType *address, fType val)
 {
     unsigned long long int* address_as_ull = (unsigned long long int*) address;
     unsigned long long int old = *address_as_ull, assumed;
@@ -30,7 +49,7 @@ __device__ fType atomicMinAny(fType *adress, fType val)
     return __ull_as_fType(old);
 }
 
-__global__ void max_min_reduce(const fType *d_array, const size_t length,
+__device__ void max_min_reduce(const fType *d_array, const size_t length,
     fType d_max, fType d_min)
 {
     extern __shared__ fType shared_max[], shared_min[];
@@ -46,8 +65,8 @@ __global__ void max_min_reduce(const fType *d_array, const size_t length,
     // Start max reduction in each block
     while(gid < length)
     {
-        shared_max[tid] = max(shared[tid], d_array[gid]);
-        shared_min[tid] = min(shared[tid], d_array[gid]);
+        shared_max[tid] = max(shared_max[tid], d_array[gid]);
+        shared_min[tid] = min(shared_min[tid], d_array[gid]);
         gid += gridDim.x * blockDim.x;
     }
     __syncthreads();
@@ -55,10 +74,10 @@ __global__ void max_min_reduce(const fType *d_array, const size_t length,
     gid = blockIdx.x * blockDim.x + threadIdx.x;
     for(unsigned int i=blockDim.x/2; i > 0; i >>= 1)
     {
-        if(tid < i && gid < elements)
+        if(tid < i && gid < length)
         {
-            shared_max[tid] = max(shared[tid], shared[tid + i]);
-            shared_min[tid] = min(shared[tid], shared[tid + i]);
+            shared_max[tid] = max(shared_max[tid], shared_max[tid + i]);
+            shared_min[tid] = min(shared_min[tid], shared_min[tid + i]);
         }
         __syncthreads();
     }
@@ -66,8 +85,8 @@ __global__ void max_min_reduce(const fType *d_array, const size_t length,
     // Now return max value of all blocks
     if(tid == 0)
     {
-        atomicMaxAny(d_max, shared_max[0]);
-        atomicMinAny(d_min, shared_min[0]);
+        atomicMaxAny(&d_max, shared_max[0]);
+        atomicMinAny(&d_min, shared_min[0]);
     }
     __syncthreads();
 }
@@ -77,10 +96,7 @@ __global__ void histogram_gmem_atomics(const fType *in,  const size_t length,
         const size_t no_of_dimensions,  const size_t no_of_bins,
         unsigned int *out)
 {
-    int gid = blockIdx.x * blockDim.x + threadIdx.x
-
-    // grid dimensions
-    int nx = blockDim.x * gridDim.x;
+    int gid = blockIdx.x * blockDim.x + threadIdx.x;
 
     // total threads in block
     int nt = blockDim.x;
@@ -95,7 +111,8 @@ __global__ void histogram_gmem_atomics(const fType *in,  const size_t length,
     }
 
     // Find min and max value in each dimension.
-    fType max_in[], min_in[]; // TODO: Check if __global__ is necessary.
+    fType *max_in = new fType[no_of_dimensions];
+    fType *min_in = new fType[no_of_dimensions]; // TODO: Check if __global__ is necessary.
     int dimension_length = length/no_of_dimensions;
     for(unsigned int i = 0; i<no_of_dimensions; i++)
     {
@@ -104,7 +121,7 @@ __global__ void histogram_gmem_atomics(const fType *in,  const size_t length,
 
     // Process input data by updating the histogram of each block in global
     // memory.
-    for(unsigned int i = threadId * no_of_dimensions; i < length;
+    for(unsigned int i = gid * no_of_dimensions; i < length;
             i += no_of_dimensions * nt)
     {
         unsigned int current_bin = 0;

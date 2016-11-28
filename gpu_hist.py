@@ -44,16 +44,17 @@ class GPUHist(object):
         self.n_flat_bins = no_of_dimensions * no_of_bins
         self.no_of_dimensions = no_of_dimensions
         self.no_of_bins = no_of_bins
-        kernel_code = open("gpu_hist/histogram_atomics.cuh", "r").read() %dict(
+        kernel_code = open("gpu_hist/histogram_atomics.cu", "r").read() %dict(
             c_precision_def=self.C_PRECISION_DEF,
             c_ftype=self.C_FTYPE,
             c_itype=self.C_ITYPE,
             n_flat_bins=self.n_flat_bins
         )
-        include_dirs = ['gpu_hist/']
+        include_dirs = ['/gpu_hist']
         # keep for compiler output, no_extern_c: allow name manling
         module = SourceModule(kernel_code, keep=True,
-                options=['--compiler-options','-Wall'], include_dirs=include_dirs, no_extern_c=False)
+                options=['--compiler-options','-Wall'],
+                include_dirs=include_dirs, no_extern_c=False)
         #module = SourceModule(kernel_code, include_dirs=include_dirs, keep=True)
         self.hist_gmem = module.get_function("histogram_gmem_atomics")
         self.hist_accum = module.get_function("histogram_final_accum")
