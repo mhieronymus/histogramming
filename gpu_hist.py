@@ -35,7 +35,7 @@ class GPUHist(object):
     ITYPE = np.uint32
 
     #TODO: Remove three bin edges and add multidimensional bin edge.
-    def __init__(self, no_of_dimensions, no_of_bins, FTYPE=np.float64):
+    def __init__(self, no_of_dimensions, no_of_bins, edges=None, FTYPE=np.float64):
         #TODO: Check for dimensions, memory, GPU version, FType
         # Set some default types.
         self.FTYPE = FTYPE
@@ -59,13 +59,15 @@ class GPUHist(object):
                 options=['--compiler-options','-Wall', '-g'],
                 include_dirs=include_dirs, no_extern_c=False)
         #module = SourceModule(kernel_code, include_dirs=include_dirs, keep=True)
+        self.max_min_reduce = module.get_function("max_min_reduce")
         self.hist_gmem = module.get_function("histogram_gmem_atomics")
         self.hist_accum = module.get_function("histogram_final_accum")
         # We use a one-dimensional block and grid. 16*16
-        self.block_dim = (8, 1, 1)
+        self.block_dim = (16*16, 1, 1)
         self.shared = (self.block_dim[0] * np.dtype(self.C_FTYPE).itemsize * 2)
         self.d_hist = cuda.mem_alloc(self.n_flat_bins
                 * np.dtype(self.HIST_TYPE).itemsize)
+        self.edges = edges
 
 
     def clear(self):
@@ -82,31 +84,28 @@ class GPUHist(object):
         # Copy the  arrays
         d_events = cuda.mem_alloc(n_events.nbytes)
         cuda.memcpy_htod(d_events, n_events)
-        # print "n_events.nbytes: ", n_events.nbytes
-        # print "self.hist.nbytes: ", self.hist.nbytes
-        # print "d_hist: ", self.n_flat_bins * np.dtype(self.HIST_TYPE).itemsize
 
         dx, mx = divmod(len(n_events), self.block_dim[0])
         self.grid_dim = ( (dx + (mx>0)), 1 )
-        # print "Grid_dim: ", self.grid_dim
-        # print "Grid_dim[0]: ", self.grid_dim[0]
-        # print "dx: ", dx, " mx: ", mx, " block_dim: ", self.block_dim
+
         # Allocate local and final histograms on device
         self.d_tmp_hist = cuda.mem_alloc(self.n_flat_bins * self.grid_dim[0]
                 * np.dtype(self.HIST_TYPE).itemsize)
-        # Clear temporary histogram (perhaps move it to GPU) Already done
-        #tmp_hist = np.zeros(self.n_flat_bins * self.grid_dim[0], dtype=self.HIST_TYPE)
-        #cuda.memcpy_htod(self.d_tmp_hist, tmp_hist)
-        d_max_in = cuda.mem_alloc(self.no_of_dimensions
-                * np.dtype(self.FTYPE).itemsize)
-        d_min_in = cuda.mem_alloc(self.no_of_dimensions
-                * np.dtype(self.FTYPE).itemsize)
-        # print "shared memory (Byte): ", self.shared
-        # print "FTYPE Byte : ", np.dtype(self.C_FTYPE).itemsize
-        # print "Number of elements: ", len(n_events)
-        # print "Dimensions: ", self.no_of_dimensions
-        # print "Bins: ", self.n_flat_bins
-        # print "Length of d_tmp_hist: ", (self.n_flat_bins * self.grid_dim[0])
+
+        # Calculate edges by yourself if no edges are given
+        if self.edges is None:
+            d_max_in = cuda.mem_alloc(self.no_of_dimensions
+                    * np.dtype(self.FTYPE).itemsize)
+            d_min_in = cuda.mem_alloc(self.no_of_dimensions
+                    * np.dtype(self.FTYPE).itemsize)
+            self.max_min_reduce(d_events,
+                    self.HIST_TYPE(len(n_events)/self.no_of_dimensions),
+                    self.no_of_dimensions, d_max_in, d_min_in,
+                    block=self.block_dim, grid=self.grid_dim, shared=self.shared)
+        else:
+            # Somehow compute edges
+            print "Not yet implemented"
+
         self.hist_gmem(d_events, self.HIST_TYPE(len(n_events)), self.no_of_dimensions,
                 self.no_of_bins, self.d_tmp_hist, d_max_in, d_min_in,
                 block=self.block_dim, grid=self.grid_dim, shared=self.shared)
@@ -134,18 +133,12 @@ class GPUHist(object):
         cuda.memcpy_dtoh(min_in, d_min_in)
         #TODO; Check return of edges for 2D with numpy's implementation
         edges = []
-        print max_in
-        print "--", min_in
+        # Create some nice edges
         for d in range(0, self.no_of_dimensions):
             bin_width = (max_in[d]-min_in[d])/self.no_of_bins
             edges_d =  np.arange(min_in[d], max_in[d]+bin_width, bin_width)
             edges.append(edges_d)
-        #     bin_width = (max_in[d]-min_in[d])/self.no_of_bins
-        #     edges_d = np.array([])
-        #     for i in range(0, self.no_of_bins):
-        #         np.append(edges, i*bin_width + min_in[d])
-            #np.extend(edges, edges_d, axis=1)
-            #edges.append(edges_d)
+
         # TODO: reshape according to given dimensions.
         #TODO: Check if device arrays are given
         # Calculate histogram

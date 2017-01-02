@@ -56,8 +56,8 @@ __device__ fType atomicMinfType(fType *address, fType val)
     return __ull_as_fType(old);
 }
 
-__device__ void max_min_reduce(const fType *d_array, const iType n_elements,
-    fType *d_max, fType *d_min)
+__global__ void max_min_reduce(const fType *d_array, const iType n_elements,
+    const iType no_of_dimensions, fType *d_max, fType *d_min)
 {
     // First n_elements entries are used for max reduction the last
     // n_elements entries are used for min reduction.
@@ -65,54 +65,62 @@ __device__ void max_min_reduce(const fType *d_array, const iType n_elements,
     fType *shared_min = (fType*)&shared[blockDim.x];
     int tid = threadIdx.x;
     int gid = blockIdx.x * blockDim.x + tid;
-    // One could as well initialize the array with values from d_array.
-    if(gid < n_elements)
+    // Max- and Min-Reduce for each dimension
+    for(int d = 0; d < no_of_dimensions; d++)
     {
-        shared_max[tid] = CUDART_NEG_INF_F;
-        shared_min[tid] = CUDART_INF_F;
-    }
-    // if(gid == 0)
-         // printf("shared_max %%f, shared_min %%f by thread %%d \n", shared_max[0], shared_min[0], gid);
-
-    // Start max reduction in each block
-    while(gid < n_elements)
-    {
-        shared_max[tid] = max(shared_max[tid], d_array[gid]);
-        shared_min[tid] = min(shared_min[tid], d_array[gid]);
-        gid += gridDim.x * blockDim.x;
-    }
-    __syncthreads();
-
-    gid = blockIdx.x * blockDim.x + threadIdx.x;
-    for(int i=blockDim.x/2; i > 0; i >>= 1)
-    {
-        // First check: For reduce algorithm
-        // Second check: Do not access memory outside of our input elements
-        // Third check: If there are less elements than threads in one block
-        // do not access out of bounds. Only for "last block" and
-        // n_elements/blockDim.x != 0
-        if(tid < i && gid < n_elements && i < n_elements)
+        const fType *current_array = &d_array[d*n_elements];
+        // One could as well initialize the array with values from d_array.
+        if(gid < n_elements)
         {
-            shared_max[tid] = max(shared_max[tid], shared_max[tid + i]);
-            shared_min[tid] = min(shared_min[tid], shared_min[tid + i]);
-            // if(gid == 0)
-            //     printf("shared_max %%f, shared_min %%f by thread %%d \n", shared_max[tid], shared_min[tid], gid);
+            shared_max[tid] = CUDART_NEG_INF_F;
+            shared_min[tid] = CUDART_INF_F;
+        }
+        // if(gid == 0)
+             // printf("shared_max %%f, shared_min %%f by thread %%d \n", shared_max[0], shared_min[0], gid);
+
+        // Start max reduction in each block
+        while(gid < n_elements*(d+1) && gid > n_elements*d)
+        {
+            shared_max[tid] = max(shared_max[tid], current_array[gid]);
+            shared_min[tid] = min(shared_min[tid], current_array[gid]);
+            gid += gridDim.x * blockDim.x;
         }
         __syncthreads();
-    }
-    // if(gid == 0)
-    //     printf("shared_max %%f, shared_min %%f by thread %%d \n", shared_max[0], shared_min[0], gid);
-    // Now return max value of all blocks in global memory
-    if(tid == 0)
-    {
-        d_max[0] = CUDART_NEG_INF_F;
-        d_min[0] = CUDART_INF_F;
-        atomicMaxfType(d_max, shared_max[0]);
-        atomicMinfType(d_min, shared_min[0]);
+
+        gid = blockIdx.x * blockDim.x + threadIdx.x;
+        for(int i=blockDim.x/2; i > 0; i >>= 1)
+        {
+            // First check: For reduce algorithm
+            // Second check: Do not access memory outside of our input elements
+            // Third check: If there are less elements than threads in one block
+            // do not access out of bounds. Only for "last block" and
+            // n_elements/blockDim.x != 0
+            if(tid < i && gid < n_elements && i < n_elements)
+            {
+                shared_max[tid] = max(shared_max[tid], shared_max[tid + i]);
+                shared_min[tid] = min(shared_min[tid], shared_min[tid + i]);
+                // if(tid == 0)
+                //    printf("shared_max %%f, shared_min %%f by thread %%d \n", shared_max[tid], shared_min[tid], gid);
+            }
+            __syncthreads();
+        }
+        // if(gid == 0)
+        //     printf("shared_max %%f, shared_min %%f by thread %%d \n", shared_max[0], shared_min[0], gid);
+        // Now return max value of all blocks in global memory
+        if(tid == 0)
+        {
+            d_max[d] = CUDART_NEG_INF_F;
+            d_min[d] = CUDART_INF_F;
+            atomicMaxfType(&d_max[d], shared_max[0]);
+            atomicMinfType(&d_min[d], shared_min[0]);
+        }
+        __syncthreads();
     }
 }
 
 // TODO: Make different methods with bins = int, array, (int, int), multiple arrays, combination of both
+// Takes max and min value for each dimension and the number of bins and
+// returns a histogram with equally sized bins.
 __global__ void histogram_gmem_atomics(const fType *in,  const iType length,
         const iType no_of_dimensions,  const iType no_of_bins,
         uiType *out, fType *max_in, fType *min_in)
@@ -131,14 +139,6 @@ __global__ void histogram_gmem_atomics(const fType *in,  const iType length,
         gmem[i] = 0;
     }
 
-    // Find min and max value in each dimension and store those in local memory
-    unsigned int dimension_length = length/no_of_dimensions;
-    for(unsigned int i = 0; i<no_of_dimensions; i++)
-    {
-        max_min_reduce(&in[i*dimension_length], dimension_length, &max_in[i], &min_in[i]);
-        __syncthreads();
-    }
-
     // Process input data by updating the histogram of each block in global
     // memory.
     for(unsigned int i = gid * no_of_dimensions; i < length;
@@ -155,20 +155,13 @@ __global__ void histogram_gmem_atomics(const fType *in,  const iType length,
             {
                 power_bins = no_of_bins * power_bins;
             }
-            // Comparing floats/doubles like that looks suspicious...
-            if(val == max_in[d])
-                current_bin--;
-            current_bin += ((val-min_in[d])/bin_width ) * power_bins;
-            // if((gid > 255 && gid < length) || gid == 0){
-            //     printf("Current_bin %%d by thread %%u with  value %%f \n", current_bin, gid, val);
-            //    printf("local_min[d] %%f, local_max[d] %%f by thread %%u with bin_width %%f and val/bin_width %%f \n", min_in[d], max_in[d], gid, bin_width, val/bin_width);
-            //}
+            int tmp_bin = (val-min_in[d])/bin_width;
+            if(tmp_bin >= no_of_bins) tmp_bin--;
+            current_bin += tmp_bin * power_bins;
         }
         // Avoid illegal memory access
         if(current_bin < no_of_bins * no_of_dimensions)
         {
-            // if((gid > 255 && gid < length) || gid == 0)
-            //     printf("Current_bin %%d by thread %%u with   \n", current_bin, gid);
             atomicAdd(&gmem[current_bin], 1);
         }
     }

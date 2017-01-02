@@ -1,1 +1,7 @@
 *.pyc
+*.o
+*.png
+*.txt
+device_histogram_nvidia.cuh
+histogram_atomics.cuh
+*.h

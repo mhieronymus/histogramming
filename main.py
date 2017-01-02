@@ -1,6 +1,6 @@
 # authors: M. Hieronymus (mhierony@students.uni-mainz.de)
 # date:    November 2016
-# Debug purpose: cuda-memcheck python  main.py --GPU_global --CPU --outdir plots -b 4 -d 16
+# Debug purpose: cuda-memcheck python main.py --GPU_global --CPU --outdir plots -b 4 -d 16
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
@@ -69,15 +69,23 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
     mkdir(os.path.join(*path), warn=False)
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    width = 60
+    ax.grid(b=True, which='major')
+    ax.grid(b=True, which='minor', linestyle=':')
     print "Histogram:"
     print np.sum(histogram)
+    print edges
     if edges is None:
+        width = 60
         edges = np.arange(-360, 360, (720/no_of_bins))
         rects = ax.bar(edges, histogram, width)
         ax.set_xticks(edges + width)
         xtickNames = ax.set_xticklabels(edges)
+    elif(isinstance(edges[0], list)):
+        X, Y = np.meshgrid(edges[0], edges[1])
+        plt.pcolormesh(X, Y, histogram, cmap='rainbow')
+        plt.colorbar(orientation='vertical')
     else:
+        width = 60
         rects = ax.bar(edges[0][0:no_of_bins], histogram, width)
         ax.set_xticks(edges[0] + width)
         xtickNames = ax.set_xticklabels(edges[0])
