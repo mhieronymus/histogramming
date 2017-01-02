@@ -167,6 +167,63 @@ __global__ void histogram_gmem_atomics(const fType *in,  const iType length,
     }
 }
 
+// TODO: Make different methods with bins = int, array, (int, int), multiple arrays, combination of both
+// Takes edges for each dimension and the number of bins and
+// returns a histogram with equally sized bins.
+__global__ void histogram_gmem_atomics_with_edges(const fType *in,  const iType length,
+        const iType no_of_dimensions,  const iType no_of_bins,
+        uiType *out, fType *edges_in)
+{
+    unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int tid = threadIdx.x;
+    // total threads
+    unsigned int nt = blockDim.x * gridDim.x;
+
+    // initialize temporary histogram for each block in global memory
+    uiType *gmem = out + (no_of_bins * no_of_dimensions) * blockIdx.x;
+    // Each thread writes zeros to global memory
+    for(unsigned int i = tid; i < no_of_bins * no_of_dimensions;
+            i += blockDim.x)
+    {
+        gmem[i] = 0;
+    }
+
+    // Process input data by updating the histogram of each block in global
+    // memory.
+    for(unsigned int i = gid * no_of_dimensions; i < length;
+            i += no_of_dimensions * nt)
+    {
+        int current_bin = 0;
+        // Look at each dimension.
+        for(unsigned int d = 0; d < no_of_dimensions; d++)
+        {
+            fType val = in[i+d];
+            while(val > edges_in[no_of_bins*d+current_bin+1])
+            {
+                current_bin++;
+
+                if(current_bin > no_of_bins)
+                {
+                    // No bin available for this value
+                    current_bin = no_of_bins * no_of_dimensions + 1;
+                    break;
+                }
+            }
+            int power_bins = 0;
+            for(unsigned int k=0; k < d; k++)
+            {
+                power_bins = no_of_bins * power_bins;
+            }
+            current_bin += no_of_bins * power_bins;
+        }
+        // Avoid illegal memory access
+        if(current_bin < no_of_bins * no_of_dimensions)
+        {
+            atomicAdd(&gmem[current_bin], 1);
+        }
+    }
+}
+
 // TODO: This function
 // __global__ void histogram_smem_atomics(const fType *in, int width, int height, unsigned int *out)
 // {

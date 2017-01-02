@@ -34,9 +34,8 @@ class GPUHist(object):
     HIST_TYPE = np.uint32
     ITYPE = np.uint32
 
-    #TODO: Remove three bin edges and add multidimensional bin edge.
     def __init__(self, no_of_dimensions, no_of_bins, edges=None, FTYPE=np.float64):
-        #TODO: Check for dimensions, memory, GPU version, FType
+        #TODO:  memory, GPU version
         # Set some default types.
         self.FTYPE = FTYPE
         # Might be useful. PISA used it for atomic cuda_utils.h with
@@ -61,12 +60,14 @@ class GPUHist(object):
         #module = SourceModule(kernel_code, include_dirs=include_dirs, keep=True)
         self.max_min_reduce = module.get_function("max_min_reduce")
         self.hist_gmem = module.get_function("histogram_gmem_atomics")
+        self.hist_gmem_given_edges = module.get_function("histogram_gmem_atomics_with_edges")
         self.hist_accum = module.get_function("histogram_final_accum")
         # We use a one-dimensional block and grid. 16*16
         self.block_dim = (16*16, 1, 1)
-        self.shared = (self.block_dim[0] * np.dtype(self.C_FTYPE).itemsize * 2)
         self.d_hist = cuda.mem_alloc(self.n_flat_bins
                 * np.dtype(self.HIST_TYPE).itemsize)
+        # Define shared memory for max- and min-reduction
+        self.shared = (self.block_dim[0] * np.dtype(self.C_FTYPE).itemsize * 2)
         self.edges = edges
 
 
@@ -79,12 +80,12 @@ class GPUHist(object):
     # TODO: Check if shared memory or not
     def get_hist(self, n_events, shared):
         """Retrive histogram with given events and edges"""
-        # TODO: Calculate block and grid dimensions
         self.clear()
         # Copy the  arrays
         d_events = cuda.mem_alloc(n_events.nbytes)
         cuda.memcpy_htod(d_events, n_events)
 
+        # Calculate the number of blocks needed
         dx, mx = divmod(len(n_events), self.block_dim[0])
         self.grid_dim = ( (dx + (mx>0)), 1 )
 
@@ -98,52 +99,48 @@ class GPUHist(object):
                     * np.dtype(self.FTYPE).itemsize)
             d_min_in = cuda.mem_alloc(self.no_of_dimensions
                     * np.dtype(self.FTYPE).itemsize)
+            max_in = np.zeros(self.no_of_dimensions, dtype=self.FTYPE)
+            min_in = np.zeros(self.no_of_dimensions, dtype=self.FTYPE)
             self.max_min_reduce(d_events,
                     self.HIST_TYPE(len(n_events)/self.no_of_dimensions),
                     self.no_of_dimensions, d_max_in, d_min_in,
-                    block=self.block_dim, grid=self.grid_dim, shared=self.shared)
+                    block=self.block_dim, grid=self.grid_dim,
+                    shared=self.shared)
+            self.hist_gmem(d_events, self.HIST_TYPE(len(n_events)),
+                    self.no_of_dimensions, self.no_of_bins, self.d_tmp_hist,
+                    d_max_in, d_min_in,
+                    block=self.block_dim, grid=self.grid_dim,
+                    shared=self.shared)
         else:
-            # Somehow compute edges
-            print "Not yet implemented"
+            d_edges_in = cuda.mem_alloc((self.n_flat_bins+1)
+                                        * np.dtype(self.FTYPE).itemsize)
+            cuda.memcpy_htod(d_edges_in, self.edges)
+            self.hist_gmem_given_edges(d_events,
+                    self.HIST_TYPE(len(n_events)), self.no_of_dimensions,
+                    self.no_of_bins, self.d_tmp_hist, d_edges_in,
+                    block=self.block_dim, grid=self.grid_dim,
+                    shared=self.shared)
 
-        self.hist_gmem(d_events, self.HIST_TYPE(len(n_events)), self.no_of_dimensions,
-                self.no_of_bins, self.d_tmp_hist, d_max_in, d_min_in,
-                block=self.block_dim, grid=self.grid_dim, shared=self.shared)
-
-        #ONLY FOR DEBUG:
-        # tmp_hist = np.zeros(self.n_flat_bins * self.grid_dim[0], dtype=self.HIST_TYPE)
-        # print "Test tmp_hist.nbytes: ", tmp_hist.nbytes
-        # print "d_tmp_hist: ",self.n_flat_bins * self.grid_dim[0] * np.dtype(self.HIST_TYPE).itemsize
-        # cuda.memcpy_dtoh(tmp_hist, self.d_tmp_hist)
-        # print "Temporary histograms: "
-        # printer = "["
-        # for i in range(0, len(tmp_hist)):
-        #     printer = printer + ", " + str(tmp_hist[i])
-        # print printer, "]"
         # TODO: Check if new dimensions might be useful
         self.hist_accum(self.d_tmp_hist, self.ITYPE(self.grid_dim[0]), self.d_hist,
                 self.no_of_bins, self.no_of_dimensions,
                 block=self.block_dim, grid=self.grid_dim)
         # Copy the array back
         cuda.memcpy_dtoh(self.hist, self.d_hist)
-        # Calculate the found edges
-        max_in = np.zeros(self.no_of_dimensions, dtype=self.FTYPE)
-        min_in = np.zeros(self.no_of_dimensions, dtype=self.FTYPE)
-        cuda.memcpy_dtoh(max_in, d_max_in)
-        cuda.memcpy_dtoh(min_in, d_min_in)
-        #TODO; Check return of edges for 2D with numpy's implementation
-        edges = []
-        # Create some nice edges
-        for d in range(0, self.no_of_dimensions):
-            bin_width = (max_in[d]-min_in[d])/self.no_of_bins
-            edges_d =  np.arange(min_in[d], max_in[d]+bin_width, bin_width)
-            edges.append(edges_d)
-
-        # TODO: reshape according to given dimensions.
+        if self.edges is None:
+            # Calculate the found edges
+            cuda.memcpy_dtoh(max_in, d_max_in)
+            cuda.memcpy_dtoh(min_in, d_min_in)
+            #TODO; Check return of edges for 2D with numpy's implementation
+            self.edges = []
+            # Create some nice edges
+            for d in range(0, self.no_of_dimensions):
+                bin_width = (max_in[d]-min_in[d])/self.no_of_bins
+                edges_d =  np.arange(min_in[d], max_in[d]+bin_width, bin_width)
+                self.edges.append(edges_d)
+            self.edges = np.asarray(self.edges, dtype=self.FTYPE)
         #TODO: Check if device arrays are given
-        # Calculate histogram
-        # Copy the results back to host
-        return self.hist, edges
+        return self.hist, self.edges
 
 
     def set_variables(FTYPE):
