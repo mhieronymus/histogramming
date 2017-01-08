@@ -35,13 +35,11 @@ class GPUHist(object):
     ITYPE = np.uint32
 
     def __init__(self, no_of_dimensions, no_of_bins, edges=None, FTYPE=np.float64):
-        #TODO:  memory, GPU version
         # Set some default types.
         self.FTYPE = FTYPE
         # Might be useful. PISA used it for atomic cuda_utils.h with
         # custom atomic_add for floats and doubles.
         #include_dirs = [os.path.abspath(find_resource('../gpu_hist'))]
-        #TODO: Add self.n_flat_bins = product of length of all dimensions
         self.n_flat_bins = no_of_dimensions * no_of_bins
         self.no_of_dimensions = self.ITYPE(no_of_dimensions)
         self.no_of_bins = self.ITYPE(no_of_bins)
@@ -63,8 +61,50 @@ class GPUHist(object):
         self.hist_gmem_given_edges = module.get_function("histogram_gmem_atomics_with_edges")
         self.hist_smem = module.get_function("histogram_smem_atomics_with_edges")
         self.hist_accum = module.get_function("histogram_final_accum")
-        # We use a one-dimensional block and grid. 16*16
-        self.block_dim = (16*16, 1, 1)
+
+        gpu_attributes = cuda.Device(0).get_attributes()
+        # See https://documen.tician.de/pycuda/driver.html
+        self.max_threads_per_block = gpu_attributes.get(
+                cuda.device_attribute.MAX_THREADS_PER_BLOCK)
+        self.max_block_dim_x = gpu_attributes.get(
+                cuda.device_attribute.MAX_BLOCK_DIM_X)
+        self.max_grid_dim_x = gpu_attributes.get(
+                cuda.device_attribute.MAX_GRID_DIM_X)
+        self.warp_size = gpu_attributes.get(
+                cuda.device_attribute.WARP_SIZE)
+        self.shared_memory = gpu_attributes.get(
+                cuda.device_attribute.MAX_SHARED_MEMORY_PER_BLOCK)
+        self.constant_memory = gpu_attributes.get(
+                cuda.device_attribute.TOTAL_CONSTANT_MEMORY)
+        self.threads_per_mp = gpu_attributes.get(
+                cuda.device_attribute.MAX_THREADS_PER_MULTIPROCESSOR)
+        self.mp = gpu_attributes.get(
+                cuda.device_attribute.MULTIPROCESSOR_COUNT)
+        self.memory, total = cuda.mem_get_info()
+
+        print "Your device has following attributes:"
+        print "Max threads per block: ", self.max_threads_per_block
+        print "Max x-dimension for block : ", self.max_block_dim_x
+        print "Max x-dimension for grid: ", self.max_grid_dim_x
+        print "Warp size: ", self.warp_size
+        print "Max shared memory per block: ", self.shared_memory/1024, "Kbytes"
+        print "Total constant memory: ", self.constant_memory/1024, "Kbytes"
+        print "Max threads per multiprocessor: ", self.threads_per_mp
+        print "Number of multiprocessors: ", self.mp
+        print "Available global memory: ", self.memory/(1024*1024), " Mbytes"
+
+        # We use a one-dimensional block and grid.
+        # TODO: Implement at least 2D or else we are limited with the number
+        # of threads
+        # We use as many threads per block as possible but we are limited
+        # to the shared memory.
+        no_of_threads = (self.shared_memory /
+                    np.dtype(self.C_FTYPE).itemsize * 2)
+        if no_of_threads > self.max_threads_per_block:
+            self.block_dim = (self.max_threads_per_block, 1, 1)
+        else:
+            self.block_dim = (no_of_threads, 1, 1)
+        print "X-dimension for block: ", self.block_dim
         self.d_hist = cuda.mem_alloc(self.n_flat_bins
                 * np.dtype(self.HIST_TYPE).itemsize)
         # Define shared memory for max- and min-reduction
@@ -105,7 +145,6 @@ class GPUHist(object):
                     self.no_of_dimensions, d_max_in, d_min_in,
                     block=self.block_dim, grid=self.grid_dim,
                     shared=self.shared)
-            #cuda.Context.synchronize()
             self.hist_gmem(d_events, self.HIST_TYPE(len(n_events)),
                     self.no_of_dimensions, self.no_of_bins, self.d_tmp_hist,
                     d_max_in, d_min_in,
@@ -121,7 +160,6 @@ class GPUHist(object):
                     block=self.block_dim, grid=self.grid_dim,
                     shared=self.shared)
 
-        # TODO: Check if new dimensions might be useful
         self.hist_accum(self.d_tmp_hist, self.ITYPE(self.grid_dim[0]), self.d_hist,
                 self.no_of_bins, self.no_of_dimensions,
                 block=self.block_dim, grid=self.grid_dim)
@@ -133,7 +171,6 @@ class GPUHist(object):
             min_in = np.zeros(self.no_of_dimensions, dtype=self.FTYPE)
             cuda.memcpy_dtoh(max_in, d_max_in)
             cuda.memcpy_dtoh(min_in, d_min_in)
-            #TODO; Check return of edges for 2D with numpy's implementation
             self.edges = []
             # Create some nice edges
             for d in range(0, self.no_of_dimensions):

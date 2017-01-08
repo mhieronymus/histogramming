@@ -130,7 +130,6 @@ __global__ void max_min_reduce(const fType *d_array, const iType n_elements,
     }
 }
 
-// TODO: Make different methods with bins = int, array, (int, int), multiple arrays, combination of both
 // Takes max and min value for each dimension and the number of bins and
 // returns a histogram with equally sized bins.
 __global__ void histogram_gmem_atomics(const fType *in,  const iType length,
@@ -178,7 +177,6 @@ __global__ void histogram_gmem_atomics(const fType *in,  const iType length,
     }
 }
 
-// TODO: Make different methods with bins = int, array, (int, int), multiple arrays, combination of both
 // Takes edges for each dimension and the number of bins and
 // returns a histogram with equally sized bins.
 __global__ void histogram_gmem_atomics_with_edges(const fType *in,  const iType length,

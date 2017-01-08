@@ -47,7 +47,6 @@ def create_array(n_elements, n_dimensions):
 
 
 def create_weights(n_elements, n_dimensions):
-    #TODO: Check if weights should be normalized
     return np.random.random((n_dimensions, n_elements))
 
 def create_edges(n_bins, n_dimensions):
@@ -114,9 +113,6 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
     fig.savefig(outdir+"/"+name)
 
 
-
-# TODO: Include timer
-# Create better/other random arrays?
 if __name__ == '__main__':
     """
     This is based on

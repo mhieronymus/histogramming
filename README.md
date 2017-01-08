@@ -17,10 +17,35 @@ All goals in detail:
 PyCUDA, CUDA etc.
 
 ## Usage
+Simply type `python main.py` and use some of the following options:
+
+ * `--full`: Full test with comparison of numpy's histogramdd and GPU code
+ with single and double precision and the GPU code with shared and global memory.
+ * `--GPU_shared`: Use GPU code with shared memory. If --GPU_both is set, then
+  --GPU_shared will be ignored.
+ * `--GPU_global`: Use GPU code with global memory. If --GPU_both is set, then
+  --GPU_global will be ignored.
+ * `--GPU_both`: Use GPU code with shared memory and global memory and compare both.        
+ * `--CPU`: Use numpy's histogramdd.        
+ * `--all_precisions`: Run all specified tests with double and single precision.
+ * `-s`, `--single_precision`: Use single precision. If it is not set, use double precision.
+ If --all_precisions is used, then -s will be ignored.
+ * `-d`, `--data`: Define the number of elements in each dimension for the input data.  
+ * `--dimension_data`: Define the number of dimensions for the input data.
+ * `-b`, `--bins`: Choose the number of bins for each dimension    
+ * `--dimension_bins`: Define the number of dimensions for the histogram.  
+ * `-w`, `--weights`: (Randomized) weights will be used on the histogram.  
+ * `--use_given_edges`: Use calculated edges instead of calculating edges during histogramming.
+ * `--outdir`: Store all output plots to this directory. If they don't exist,
+ the script will make them, including all subdirectories.
+ If none is supplied no plots will be saved.
 
 ## Input
+Currently some arbitrary values between -360 and 360 are generated.
 
 ## Output
+Currently only a small comparison between numpy's implementation and the GPU
+version are shown (if `--outdir` is set and both tests are used).
 
 ## Histogramming
 Before a thread reads a value it is not known in which bin it belongs which can
