@@ -87,11 +87,13 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
     ax = fig.add_subplot(111)
     ax.grid(b=True, which='major')
     ax.grid(b=True, which='minor', linestyle=':')
-    print "Histogram:"
+    print "Histogram:", name
     print np.sum(histogram)
+    print histogram
+    print "With edges:"
     print edges
-    print np.shape(edges)
-    print np.shape(histogram)
+    # print np.shape(edges)
+    # print np.shape(histogram)
     if edges is None:
         width = 60
         edges = np.arange(-360, 360, (720/no_of_bins))

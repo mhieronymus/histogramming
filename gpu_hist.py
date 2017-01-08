@@ -61,6 +61,7 @@ class GPUHist(object):
         self.max_min_reduce = module.get_function("max_min_reduce")
         self.hist_gmem = module.get_function("histogram_gmem_atomics")
         self.hist_gmem_given_edges = module.get_function("histogram_gmem_atomics_with_edges")
+        self.hist_smem = module.get_function("histogram_smem_atomics_with_edges")
         self.hist_accum = module.get_function("histogram_final_accum")
         # We use a one-dimensional block and grid. 16*16
         self.block_dim = (16*16, 1, 1)
@@ -99,13 +100,12 @@ class GPUHist(object):
                     * np.dtype(self.FTYPE).itemsize)
             d_min_in = cuda.mem_alloc(self.no_of_dimensions
                     * np.dtype(self.FTYPE).itemsize)
-            max_in = np.zeros(self.no_of_dimensions, dtype=self.FTYPE)
-            min_in = np.zeros(self.no_of_dimensions, dtype=self.FTYPE)
             self.max_min_reduce(d_events,
                     self.HIST_TYPE(len(n_events)/self.no_of_dimensions),
                     self.no_of_dimensions, d_max_in, d_min_in,
                     block=self.block_dim, grid=self.grid_dim,
                     shared=self.shared)
+            #cuda.Context.synchronize()
             self.hist_gmem(d_events, self.HIST_TYPE(len(n_events)),
                     self.no_of_dimensions, self.no_of_bins, self.d_tmp_hist,
                     d_max_in, d_min_in,
@@ -129,6 +129,8 @@ class GPUHist(object):
         cuda.memcpy_dtoh(self.hist, self.d_hist)
         if self.edges is None:
             # Calculate the found edges
+            max_in = np.zeros(self.no_of_dimensions, dtype=self.FTYPE)
+            min_in = np.zeros(self.no_of_dimensions, dtype=self.FTYPE)
             cuda.memcpy_dtoh(max_in, d_max_in)
             cuda.memcpy_dtoh(min_in, d_min_in)
             #TODO; Check return of edges for 2D with numpy's implementation
@@ -136,7 +138,7 @@ class GPUHist(object):
             # Create some nice edges
             for d in range(0, self.no_of_dimensions):
                 bin_width = (max_in[d]-min_in[d])/self.no_of_bins
-                edges_d =  np.arange(min_in[d], max_in[d]+bin_width, bin_width)
+                edges_d =  np.arange(min_in[d], max_in[d]+1, bin_width)
                 self.edges.append(edges_d)
             self.edges = np.asarray(self.edges, dtype=self.FTYPE)
         #TODO: Check if device arrays are given
