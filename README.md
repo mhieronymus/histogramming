@@ -31,9 +31,8 @@ Simply type `python main.py` and use some of the following options:
  * `-s`, `--single_precision`: Use single precision. If it is not set, use double precision.
  If --all_precisions is used, then -s will be ignored.
  * `-d`, `--data`: Define the number of elements in each dimension for the input data.  
- * `--dimension_data`: Define the number of dimensions for the input data.
+ * `--dimension`: Define the number of dimensions for the input data and the histogram.
  * `-b`, `--bins`: Choose the number of bins for each dimension    
- * `--dimension_bins`: Define the number of dimensions for the histogram.  
  * `-w`, `--weights`: (Randomized) weights will be used on the histogram.  
  * `--use_given_edges`: Use calculated edges instead of calculating edges during histogramming.
  * `--outdir`: Store all output plots to this directory. If they don't exist,
