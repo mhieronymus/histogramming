@@ -65,9 +65,9 @@ def create_edges(n_bins, n_dimensions):
     # Create some nice edges
     for d in range(0, n_dimensions):
         bin_width =720/n_bins
-        edges_d =  np.arange(-360, 361, bin_width, dtype=self.FTYPE)
+        edges_d =  np.arange(-360, 361, bin_width, dtype=FTYPE)
         edges.append(edges_d)
-    return edges
+    return np.asarray(edges, dtype=FTYPE)
 
 
 # Currently only 1D and 2D
