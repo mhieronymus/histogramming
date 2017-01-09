@@ -59,7 +59,8 @@ class GPUHist(object):
         self.max_min_reduce = module.get_function("max_min_reduce")
         self.hist_gmem = module.get_function("histogram_gmem_atomics")
         self.hist_gmem_given_edges = module.get_function("histogram_gmem_atomics_with_edges")
-        self.hist_smem = module.get_function("histogram_smem_atomics_with_edges")
+        self.hist_smem = module.get_function("histogram_smem_atomics")
+        self.hist_smem_given_edges = module.get_function("histogram_smem_atomics_with_edges")
         self.hist_accum = module.get_function("histogram_final_accum")
 
         gpu_attributes = cuda.Device(0).get_attributes()
@@ -103,11 +104,15 @@ class GPUHist(object):
         no_of_threads = (self.shared_memory /
                     np.dtype(self.C_FTYPE).itemsize * 2)
         if no_of_threads > self.max_threads_per_block:
-            self.block_dim = (self.max_threads_per_block, 1, 1)
+            overflow = self.max_threads_per_block%self.no_of_dimensions
+            self.block_dim = (self.max_threads_per_block-overflow, 1, 1)
         else:
-            self.block_dim = (no_of_threads, 1, 1)
+            overflow = no_of_threads%self.no_of_dimensions
+            self.block_dim = (no_of_threads-overflow, 1, 1)
         # debug
-        # self.block_dim = (4, 1, 1)
+        # overflow = 4%self.no_of_dimensions
+        # self.block_dim = (4-overflow, 1, 1)
+
         print "X-dimension for block: ", self.block_dim
         self.d_hist = cuda.mem_alloc(self.n_flat_bins
                 * np.dtype(self.HIST_TYPE).itemsize)
@@ -126,6 +131,11 @@ class GPUHist(object):
     def get_hist(self, n_events, shared):
         """Retrive histogram with given events and edges"""
         self.clear()
+        # Check if shared memory can be used
+        if shared:
+            if (self.n_flat_bins * np.dtype(self.HIST_TYPE).itemsize) > self.shared_memory:
+                shared = False
+                print "Not enough shared memory available. Switching to global memory usage."
         # Copy the  arrays
         d_events = cuda.mem_alloc(n_events.nbytes)
         cuda.memcpy_htod(d_events, n_events)
@@ -134,43 +144,73 @@ class GPUHist(object):
         dx, mx = divmod(len(n_events), self.block_dim[0])
         self.grid_dim = ( (dx + (mx>0)), 1 )
         print "Grid-dimensions: ", self.grid_dim
-        # Allocate local and final histograms on device
-        self.d_tmp_hist = cuda.mem_alloc(self.n_flat_bins * self.grid_dim[0]
+        # Allocate local histograms on device
+        d_tmp_hist = cuda.mem_alloc(self.n_flat_bins * self.grid_dim[0]
                 * np.dtype(self.HIST_TYPE).itemsize)
+        if shared:
+            # Calculate edges by yourself if no edges are given
+            if self.edges is None:
+                d_max_in = cuda.mem_alloc(self.no_of_dimensions
+                        * np.dtype(self.FTYPE).itemsize)
+                d_min_in = cuda.mem_alloc(self.no_of_dimensions
+                        * np.dtype(self.FTYPE).itemsize)
+                self.max_min_reduce(d_events,
+                        self.HIST_TYPE(len(n_events)),
+                        self.no_of_dimensions, d_max_in, d_min_in,
+                        block=self.block_dim, grid=self.grid_dim,
+                        shared=self.shared)
+                # Calculate local histograms on shared memory on device
+                self.shared = (self.n_flat_bins * np.dtype(self.HIST_TYPE).itemsize)
+                print "using shared memory: ", self.shared
+                print "in Kbytes: ", self.shared/1024, " Kbytes"
+                self.hist_smem(d_events, self.HIST_TYPE(len(n_events)*self.no_of_dimensions),
+                        self.no_of_dimensions, self.no_of_bins, self.n_flat_bins,
+                        d_tmp_hist, d_max_in, d_min_in,
+                        block=self.block_dim, grid=self.grid_dim,
+                        shared=self.shared)
+                # Debug
+                # tmp_hist = np.zeros(self.n_flat_bins * self.grid_dim[0], dtype=self.HIST_TYPE)
+                # cuda.memcpy_dtoh(tmp_hist, d_tmp_hist)
+                # tmp_hist = np.reshape(tmp_hist, (self.grid_dim[0], self.no_of_bins, self.no_of_bins))
+                # print np.sum(tmp_hist)
+                # print "tmp_hist:\n", tmp_hist
 
-        # Calculate edges by yourself if no edges are given
-        if self.edges is None:
-            d_max_in = cuda.mem_alloc(self.no_of_dimensions
-                    * np.dtype(self.FTYPE).itemsize)
-            d_min_in = cuda.mem_alloc(self.no_of_dimensions
-                    * np.dtype(self.FTYPE).itemsize)
-            self.max_min_reduce(d_events,
-                    self.HIST_TYPE(len(n_events)),
-                    self.no_of_dimensions, d_max_in, d_min_in,
-                    block=self.block_dim, grid=self.grid_dim,
-                    shared=self.shared)
-            self.hist_gmem(d_events, self.HIST_TYPE(len(n_events)*self.no_of_dimensions),
-                    self.no_of_dimensions, self.no_of_bins, self.n_flat_bins,
-                    self.d_tmp_hist, d_max_in, d_min_in,
-                    block=self.block_dim, grid=self.grid_dim,
-                    shared=self.shared)
-            # Debug
-            # tmp_hist = np.zeros(self.n_flat_bins * self.grid_dim[0], dtype=self.HIST_TYPE)
-            # cuda.memcpy_dtoh(tmp_hist, self.d_tmp_hist)
-            # tmp_hist = np.reshape(tmp_hist, (self.grid_dim[0], self.no_of_bins, self.no_of_bins))
-            # print np.sum(tmp_hist)
-            # print "tmp_hist:\n", tmp_hist
+            else:
+                print "not yet implemented"
         else:
-            d_edges_in = cuda.mem_alloc((self.n_flat_bins+1)
-                                        * np.dtype(self.FTYPE).itemsize)
-            cuda.memcpy_htod(d_edges_in, self.edges)
-            self.hist_gmem_given_edges(d_events,
-                    self.HIST_TYPE(len(n_events)), self.no_of_dimensions,
-                    self.no_of_bins, self.n_flat_bins,
-                    self.d_tmp_hist, d_edges_in,
-                    block=self.block_dim, grid=self.grid_dim,
-                    shared=self.shared)
-        self.hist_accum(self.d_tmp_hist, self.ITYPE(self.grid_dim[0]), self.d_hist,
+            # Calculate edges by yourself if no edges are given
+            if self.edges is None:
+                d_max_in = cuda.mem_alloc(self.no_of_dimensions
+                        * np.dtype(self.FTYPE).itemsize)
+                d_min_in = cuda.mem_alloc(self.no_of_dimensions
+                        * np.dtype(self.FTYPE).itemsize)
+                self.max_min_reduce(d_events,
+                        self.HIST_TYPE(len(n_events)),
+                        self.no_of_dimensions, d_max_in, d_min_in,
+                        block=self.block_dim, grid=self.grid_dim,
+                        shared=self.shared)
+                self.hist_gmem(d_events, self.HIST_TYPE(len(n_events)*self.no_of_dimensions),
+                        self.no_of_dimensions, self.no_of_bins, self.n_flat_bins,
+                        d_tmp_hist, d_max_in, d_min_in,
+                        block=self.block_dim, grid=self.grid_dim,
+                        shared=self.shared)
+                # Debug
+                # tmp_hist = np.zeros(self.n_flat_bins * self.grid_dim[0], dtype=self.HIST_TYPE)
+                # cuda.memcpy_dtoh(tmp_hist, self.d_tmp_hist)
+                # tmp_hist = np.reshape(tmp_hist, (self.grid_dim[0], self.no_of_bins, self.no_of_bins))
+                # print np.sum(tmp_hist)
+                # print "tmp_hist:\n", tmp_hist
+            else:
+                d_edges_in = cuda.mem_alloc((self.n_flat_bins+1)
+                                            * np.dtype(self.FTYPE).itemsize)
+                cuda.memcpy_htod(d_edges_in, self.edges)
+                self.hist_gmem_given_edges(d_events,
+                        self.HIST_TYPE(len(n_events)), self.no_of_dimensions,
+                        self.no_of_bins, self.n_flat_bins,
+                        d_tmp_hist, d_edges_in,
+                        block=self.block_dim, grid=self.grid_dim,
+                        shared=self.shared)
+        self.hist_accum(d_tmp_hist, self.ITYPE(self.grid_dim[0]), self.d_hist,
                 self.no_of_bins, self.n_flat_bins, self.no_of_dimensions,
                 block=self.block_dim, grid=self.grid_dim)
         # Copy the array back and make the right shape

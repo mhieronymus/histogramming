@@ -293,6 +293,8 @@ if __name__ == '__main__':
                 no_of_bins=args.bins, edges=edges) as histogrammer:
             histogram_gpu_shared, edges_gpu_shared = histogrammer.get_hist(
                                                     input_data, shared=True)
+        with gpu_hist.GPUHist(FTYPE=FTYPE, no_of_dimensions=args.dimension,
+                no_of_bins=args.bins, edges=edges) as histogrammer:
             histogram_gpu_global, edges_gpu_global = histogrammer.get_hist(
                                                     input_data, shared=False)
         if args.all_precisions:
@@ -343,7 +345,7 @@ if __name__ == '__main__':
                 name = "single"
             else:
                 name = "double"
-            plot_histogram(histogram_gpu_shared, None, args.outdir,
+            plot_histogram(histogram_gpu_shared, edges_gpu_shared, args.outdir,
                     "GPU shared memory, " + name, args.bins)
 
     if args.GPU_global and not args.GPU_both:
