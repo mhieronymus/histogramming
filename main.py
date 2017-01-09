@@ -97,33 +97,68 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
     print edges
     # print np.shape(edges)
     print np.shape(histogram)
-    if edges is None:
+    print len(np.shape(histogram))
+    if(len(np.shape(histogram)) == 1):
         width = 60
-        edges = np.arange(-360, 360, (720/no_of_bins))
-        rects = ax.bar(edges, histogram, width)
-        ax.set_xticks(edges)
-        xtickNames = ax.set_xticklabels(edges)
+        if edges is None:
+            edges = np.arange(-360, 360, (720/no_of_bins))
+            rects = ax.bar(edges, histogram, width)
+            ax.set_xticks(edges)
+            xtickNames = ax.set_xticklabels(edges)
+        else:
+            rects = ax.bar(edges[0][0:no_of_bins], histogram, width)
+            ax.set_xticks(edges[0])
+            xtickNames = ax.set_xticklabels(edges[0])
         ax.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-    elif(len(edges) == 2):
+        for tick in ax.xaxis.get_major_ticks():
+            tick.label.set_fontsize(9)
+        for tick in ax.yaxis.get_major_ticks():
+            tick.label.set_fontsize(9)
+        fig.savefig(outdir+"/"+name)
+    elif(len(np.shape(histogram)) == 2):
         X, Y = np.meshgrid(edges[0], edges[1])
         plt.pcolormesh(X, Y, histogram, cmap='rainbow')
-        plt.colorbar(orientation='vertical')
+        cbar = plt.colorbar(orientation='vertical')
+        cbar.ax.tick_params(labelsize=9)
         ax.set_xticks(edges[0])
         ax.set_yticks(edges[1])
         ax.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
         ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+        for tick in ax.xaxis.get_major_ticks():
+            tick.label.set_fontsize(9)
+        for tick in ax.yaxis.get_major_ticks():
+            tick.label.set_fontsize(9)
         # set the limits of the image
         plt.axis([X[0][0], X[0][len(X[0])-1], Y[0][0], Y[len(Y)-1][len(Y[len(Y)-1])-1]])
-    elif(len(edges) == 1):
-        width = 60
-        rects = ax.bar(edges[0][0:no_of_bins], histogram, width)
-        ax.set_xticks(edges[0])
-        xtickNames = ax.set_xticklabels(edges[0])
-        ax.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-    else:
-        print "Not yet implemented"
+        fig.savefig(outdir+"/"+name)
+    elif(len(np.shape(histogram)) == 3):
+        print np.shape(edges)
+        fig = plt.figure()
+        for i in range(0, np.shape(histogram)[0]):
+            subplot = len(edges[0])/2*100 + 20 + i + 1
+            ax = fig.add_subplot(subplot)
+            ax.grid(b=True, which='major')
+            ax.grid(b=True, which='minor', linestyle=':')
+            X, Y = np.meshgrid(edges[0], edges[1])
+            plt.pcolormesh(X, Y, histogram[i], cmap='rainbow')
+            cbar = plt.colorbar(orientation='vertical')
+            cbar.ax.tick_params(labelsize=9)
+            ax.set_xticks(edges[0])
+            ax.set_yticks(edges[1])
+            ax.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+            ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+            for tick in ax.xaxis.get_major_ticks():
+                tick.label.set_fontsize(9)
+            for tick in ax.yaxis.get_major_ticks():
+                tick.label.set_fontsize(9)
+            # set the limits of the image
+            plt.axis([X[0][0], X[0][len(X[0])-1], Y[0][0], Y[len(Y)-1][len(Y[len(Y)-1])-1]])
+        fig.savefig(outdir+"/"+name)
 
-    fig.savefig(outdir+"/"+name)
+    else:
+        print "Plots are only availale for 3 or less dimensions. Aborting"
+
+
 
 
 if __name__ == '__main__':

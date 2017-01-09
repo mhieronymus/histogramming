@@ -140,29 +140,15 @@ class GPUHist(object):
 
         # Calculate edges by yourself if no edges are given
         if self.edges is None:
-            # print np.shape(n_events)
-            # print "n_elements: ", self.HIST_TYPE(len(n_events)*self.no_of_dimensions)
-            # print "flat bins: ", self.n_flat_bins
             d_max_in = cuda.mem_alloc(self.no_of_dimensions
                     * np.dtype(self.FTYPE).itemsize)
             d_min_in = cuda.mem_alloc(self.no_of_dimensions
                     * np.dtype(self.FTYPE).itemsize)
-            print "n_elements: ", len(n_events)
-            print "Memory usage:"
-            print np.shape(n_events)
-            print "d_events: ", n_events.nbytes, " Bytes"
-            print "d_events: ", n_events.nbytes/1024, " Kbytes"
-            print "shared memory: ", self.shared/1024, " Kbytes"
-            print "out arrays: ", self.no_of_dimensions * np.dtype(self.FTYPE).itemsize*2
             self.max_min_reduce(d_events,
                     self.HIST_TYPE(len(n_events)),
                     self.no_of_dimensions, d_max_in, d_min_in,
                     block=self.block_dim, grid=self.grid_dim,
                     shared=self.shared)
-            max_in = np.zeros(self.no_of_dimensions, dtype=self.FTYPE)
-            min_in = np.zeros(self.no_of_dimensions, dtype=self.FTYPE)
-            cuda.memcpy_dtoh(max_in, d_max_in)
-            cuda.memcpy_dtoh(min_in, d_min_in)
             self.hist_gmem(d_events, self.HIST_TYPE(len(n_events)*self.no_of_dimensions),
                     self.no_of_dimensions, self.no_of_bins, self.n_flat_bins,
                     self.d_tmp_hist, d_max_in, d_min_in,
