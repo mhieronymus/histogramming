@@ -47,8 +47,7 @@ class GPUHist(object):
             c_precision_def=self.C_PRECISION_DEF,
             c_ftype=self.C_FTYPE,
             c_itype=self.C_ITYPE,
-            c_uitype=self.C_HIST_TYPE,
-            n_flat_bins=self.n_flat_bins
+            c_uitype=self.C_HIST_TYPE
         )
         include_dirs = ['/gpu_hist']
         # keep for compiler output, no_extern_c: allow name manling
@@ -149,9 +148,11 @@ class GPUHist(object):
                     self.no_of_dimensions, d_max_in, d_min_in,
                     block=self.block_dim, grid=self.grid_dim,
                     shared=self.shared)
+            d_current_bin = cuda.mem_alloc(len(n_events)
+                    * np.dtype(self.HIST_TYPE).itemsize)
             self.hist_gmem(d_events, self.HIST_TYPE(len(n_events)*self.no_of_dimensions),
                     self.no_of_dimensions, self.no_of_bins, self.n_flat_bins,
-                    self.d_tmp_hist, d_max_in, d_min_in,
+                    self.d_tmp_hist, d_max_in, d_min_in, d_current_bin,
                     block=self.block_dim, grid=self.grid_dim,
                     shared=self.shared)
             # Debug

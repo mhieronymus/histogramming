@@ -8,7 +8,6 @@
 #define fType %(c_ftype)s
 #define iType %(c_itype)s
 #define uiType %(c_uitype)s
-#define N_FLAT_BINS %(n_flat_bins)i
 // See ieee floating point specification
 #define CUDART_INF_F __ull_as_fType(0x7ff0000000000000ULL)
 #define CUDART_NEG_INF_F __ull_as_fType(0xfff0000000000000ULL)
@@ -134,7 +133,8 @@ __global__ void max_min_reduce(const fType *d_array, const iType n_elements,
 // returns a histogram with equally sized bins.
 __global__ void histogram_gmem_atomics(const fType *in,  const iType length,
         const iType no_of_dimensions,  const iType no_of_bins,
-        const iType no_of_flat_bins, uiType *out, fType *max_in, fType *min_in)
+        const iType no_of_flat_bins, uiType *out, fType *max_in, fType *min_in,
+        uiType *current_bin)
 {
     unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
     unsigned int tid = threadIdx.x;
@@ -149,72 +149,74 @@ __global__ void histogram_gmem_atomics(const fType *in,  const iType length,
     }
 
     // Process input data by updating the histogram of each block in global
-    // memory. Each thread processes one element with all its dimensions at a
-    // time.
-    for(unsigned int i = gid*no_of_dimensions; i < length;
-        i+=no_of_dimensions*total_threads)
+    // memory. Each thread gets one index, calculates its bin and
+    // if one element consists of multiple dimension, then those are added
+    // together in global memory.
+    if(gid < total_threads/no_of_dimensions)
     {
-        int current_bin = 0;
-        for(unsigned int d = 0; d < no_of_dimensions; d++)
+        current_bin[gid] = 0;
+    }
+    for(unsigned int i=gid; i < length; i+=total_threads)
+    {
+        int d = i%no_of_dimensions;
+        int power_bins = 1;
+        for(unsigned int k=no_of_dimensions-1; k > d; k--)
         {
-            // if(gid == 0)
-                // printf("current_bin %%d\n", current_bin);
-            fType bin_width = (max_in[d]-min_in[d])/no_of_bins;
-            fType val = in[i + d];
-            // Get the bin in the current dimension
-            int tmp_bin = (val-min_in[d])/bin_width;
-            if(tmp_bin >= no_of_bins) tmp_bin--;
-            // Get the right place in the histogram
-            int power_bins = 1;
-            for(unsigned int k=no_of_dimensions-1; k > d; k--)
-            {
-                power_bins = no_of_bins * power_bins;
-            }
-            // if(gid == 0)
-            // {
-                //  printf("B val %%f, d %%d, current_bin %%d, by thread %%d \n", val, d, current_bin, gid);
-                //  printf("B power_bins %%d, tmp_bin %%d, bin_width %%f by thread %%d \n", power_bins, tmp_bin, bin_width, gid);
-
-            //  }
-            current_bin += tmp_bin * power_bins;
-            // if(gid == 0)
-            // {
-                //  printf("val %%f, d %%d, current_bin %%d, by thread %%d \n", val, d, current_bin, gid);
-                //  printf("power_bins %%d, tmp_bin %%d, bin_width %%f by thread %%d \n", power_bins, tmp_bin, bin_width, gid);
-            //  }
+            power_bins = no_of_bins * power_bins;
         }
-        // Avoid illegal memory access
-        if(current_bin < no_of_flat_bins)
-        {
-            atomicAdd(&gmem[current_bin], 1);
-        }
+        fType bin_width = (max_in[d]-min_in[d])/no_of_bins;
+        fType val = in[i];
+        int tmp_bin = (val-min_in[d])/bin_width;
+        if(tmp_bin >= no_of_bins) tmp_bin--;
+        tmp_bin *= power_bins;
+        atomicAdd(&current_bin[i/no_of_dimensions], tmp_bin);
+    }
+    __syncthreads();
+    for(unsigned int i=gid; i < length/no_of_dimensions; i+=total_threads)
+    {
+        int bin = current_bin[i];
+        atomicAdd(&gmem[bin], 1);
     }
 
-    // // Process input data by updating the histogram of each block in global
-    // // memory.
-    // for(unsigned int d = 0; d < no_of_dimensions; d++)
+    // Process input data by updating the histogram of each block in global
+    // memory. Each thread processes one element with all its dimensions at a
+    // time.
+    // for(unsigned int i = gid*no_of_dimensions; i < length;
+    //     i+=no_of_dimensions*total_threads)
     // {
-    //     fType bin_width = (max_in[d]-min_in[d])/no_of_bins;
-    //     int power_bins = 1;
-    //     for(unsigned int k=0; k < d; k++)
+    //     int current_bin = 0;
+    //     for(unsigned int d = 0; d < no_of_dimensions; d++)
     //     {
-    //         power_bins = no_of_bins * power_bins;
-    //     }
-    //
-    //     for(unsigned int i = gid * no_of_dimensions+d; i < length;
-    //             i += no_of_dimensions * total_threads)
-    //     {
-    //         int current_bin = 0;
-    //         fType val = in[i];
+    //         // if(gid == 0)
+    //             // printf("current_bin %%d\n", current_bin);
+    //         fType bin_width = (max_in[d]-min_in[d])/no_of_bins;
+    //         fType val = in[i + d];
+    //         // Get the bin in the current dimension
     //         int tmp_bin = (val-min_in[d])/bin_width;
     //         if(tmp_bin >= no_of_bins) tmp_bin--;
-    //         current_bin += tmp_bin * power_bins;
-    //
-    //         // Avoid illegal memory access
-    //         if(current_bin < no_of_flat_bins)
+    //         // Get the right place in the histogram
+    //         int power_bins = 1;
+    //         for(unsigned int k=no_of_dimensions-1; k > d; k--)
     //         {
-    //             atomicAdd(&gmem[current_bin], 1);
+    //             power_bins = no_of_bins * power_bins;
     //         }
+    //         // if(gid == 0)
+    //         // {
+    //             //  printf("B val %%f, d %%d, current_bin %%d, by thread %%d \n", val, d, current_bin, gid);
+    //             //  printf("B power_bins %%d, tmp_bin %%d, bin_width %%f by thread %%d \n", power_bins, tmp_bin, bin_width, gid);
+    //
+    //         //  }
+    //         current_bin += tmp_bin * power_bins;
+    //         // if(gid == 0)
+    //         // {
+    //             //  printf("val %%f, d %%d, current_bin %%d, by thread %%d \n", val, d, current_bin, gid);
+    //             //  printf("power_bins %%d, tmp_bin %%d, bin_width %%f by thread %%d \n", power_bins, tmp_bin, bin_width, gid);
+    //         //  }
+    //     }
+    //     // Avoid illegal memory access
+    //     if(current_bin < no_of_flat_bins)
+    //     {
+    //         atomicAdd(&gmem[current_bin], 1);
     //     }
     // }
 }
