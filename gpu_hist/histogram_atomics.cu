@@ -65,8 +65,7 @@ __global__ void max_min_reduce(const fType *d_array, const iType n_elements,
     fType *shared_min = (fType*)&shared[blockDim.x];
     int tid = threadIdx.x;
     int gid = blockIdx.x * blockDim.x + tid;
-    if(gid == 0)
-        printf("Wuhu, thread 0 could do something\n");
+
     // Init global max and min value. This is a separated loop to avoid
     // race conditions.
     for(int d = 0; d < no_of_dimensions; d++)
@@ -88,14 +87,12 @@ __global__ void max_min_reduce(const fType *d_array, const iType n_elements,
             shared_min[tid] = d_array[gid*no_of_dimensions+d];
             gid += gridDim.x * blockDim.x;
         }
-        // if(gid == 0)
-        //      printf("Before first: shared_max %%f, shared_min %%f by thread %%d \n", shared_max[0], shared_min[0], gid);
 
         // Start max reduction in each block with left overs from input array.
         // If there are more elements than threads, then we copy the next
         // elements from input if they are bigger/lower than the last copied
         // values.
-        while(gid < n_elements*(d+1) && gid >= n_elements*d)
+        while(gid < n_elements && gid >= n_elements)
         {
             shared_max[tid] = max(shared_max[tid],
                 d_array[gid*no_of_dimensions+d]);
@@ -104,8 +101,8 @@ __global__ void max_min_reduce(const fType *d_array, const iType n_elements,
             gid += gridDim.x * blockDim.x;
         }
         __syncthreads();
-
         gid = blockIdx.x * blockDim.x + threadIdx.x;
+
         // Blockwise reduction
         for(int i=blockDim.x/2; i > 0; i >>= 1)
         {
@@ -121,18 +118,16 @@ __global__ void max_min_reduce(const fType *d_array, const iType n_elements,
             }
             __syncthreads();
         }
-
         // Now return max value of all blocks in global memory
-        if(tid == 0)
+        if(tid == 0 && gid < n_elements)
         {
             atomicMaxfType(&d_max[d], shared_max[0]);
             atomicMinfType(&d_min[d], shared_min[0]);
         }
+        // printf("Global: max %%f, min %%f by thread %%d \n", d_max[d], d_min[d], gid);
         // I don't think a syncthreads is needed here.
         // __syncthreads();
     }
-    if(gid == 0)
-        printf("Wuhu, thread 0 could finish something %%f, %%f, %%f, %%f\n", d_max[0], d_max[1], d_min[0], d_min[1]);
 }
 
 // Takes max and min value for each dimension and the number of bins and

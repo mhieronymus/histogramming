@@ -107,7 +107,7 @@ class GPUHist(object):
         else:
             self.block_dim = (no_of_threads, 1, 1)
         # debug
-        # self.block_dim = (6, 1, 1)
+        # self.block_dim = (4, 1, 1)
         print "X-dimension for block: ", self.block_dim
         self.d_hist = cuda.mem_alloc(self.n_flat_bins
                 * np.dtype(self.HIST_TYPE).itemsize)
