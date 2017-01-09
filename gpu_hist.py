@@ -167,7 +167,7 @@ class GPUHist(object):
                         shared=self.shared)
             else:
                 self.shared = (self.n_flat_bins * np.dtype(self.HIST_TYPE).itemsize)
-                d_edges_in = cuda.mem_alloc((self.n_flat_bins+1)
+                d_edges_in = cuda.mem_alloc(((self.no_of_bins+1)*self.no_of_dimensions)
                                             * np.dtype(self.FTYPE).itemsize)
                 cuda.memcpy_htod(d_edges_in, self.edges)
                 self.hist_smem_given_edges(d_events,
@@ -206,7 +206,7 @@ class GPUHist(object):
                 # print np.sum(tmp_hist)
                 # print "tmp_hist:\n", tmp_hist
             else:
-                d_edges_in = cuda.mem_alloc((self.n_flat_bins+1)
+                d_edges_in = cuda.mem_alloc(((self.no_of_bins+1)*self.no_of_dimensions)
                                             * np.dtype(self.FTYPE).itemsize)
                 cuda.memcpy_htod(d_edges_in, self.edges)
                 self.hist_gmem_given_edges(d_events,
