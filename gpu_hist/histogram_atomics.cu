@@ -8,7 +8,6 @@
 #define fType %(c_ftype)s
 #define iType %(c_itype)s
 #define uiType %(c_uitype)s
-#define N_FLAT_BINS %(n_flat_bins)i
 // See ieee floating point specification
 #define CUDART_INF_F __ull_as_fType(0x7ff0000000000000ULL)
 #define CUDART_NEG_INF_F __ull_as_fType(0xfff0000000000000ULL)
