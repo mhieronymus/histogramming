@@ -10,6 +10,9 @@ import argparse
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import gpu_hist
 
+import pycuda.driver as cuda
+import pycuda.autoinit
+
 import os
 
 FTYPE = np.float64
@@ -43,16 +46,16 @@ def mkdir(d, mode=0750, warn=True):
 def create_array(n_elements, n_dimensions):
     """Create an array with values between -360 and 360 (could be any other
     range too)"""
-    # array = np.ndarray(shape(n_elements, n_dimensions), dtype=FTYPE)
-    # for i in range(0, n_elements):
-    #     for d in range(0, n_dimensions):
-    #
-    # return np.array(np.array(720*np.random.random(n_elements)-360,
-    #         dtype=FTYPE) for i in range(0, n_dimensions))
     return np.array(720*np.random.random((n_elements, n_dimensions))-360,
             dtype=FTYPE)
-    # return np.array(720*np.random.random((n_dimensions * n_elements))-360,
-    #         dtype=FTYPE)
+
+
+def create_gpu_array(n_elements, n_dimensions):
+    values = np.array(720*np.random.random((n_elements, n_dimensions))-360,
+            dtype=FTYPE)
+    d_values = cuda.mem_alloc(n_elements*n_dimensions*np.dtype(FTYPE).itemsize)
+    cuda.memcpy_htod(d_values, values)
+    return values
 
 
 def create_weights(n_elements, n_dimensions):
@@ -90,7 +93,7 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
     ax = fig.add_subplot(111)
     ax.grid(b=True, which='major')
     ax.grid(b=True, which='minor', linestyle=':')
-    print "Histogram:", name
+    print "\nHistogram:", name
     print np.sum(histogram)
     print histogram
     print "With edges:"
@@ -99,6 +102,7 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
     print np.shape(histogram)
     print len(np.shape(histogram))
     if(len(np.shape(histogram)) == 1):
+        print "1D"
         width = 60
         if edges is None:
             edges = np.arange(-360, 360, (720/no_of_bins))
@@ -116,6 +120,7 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
             tick.label.set_fontsize(9)
         fig.savefig(outdir+"/"+name)
     elif(len(np.shape(histogram)) == 2):
+        print "2D"
         X, Y = np.meshgrid(edges[0], edges[1])
         plt.pcolormesh(X, Y, histogram, cmap='rainbow')
         cbar = plt.colorbar(orientation='vertical')
@@ -132,6 +137,7 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
         plt.axis([X[0][0], X[0][len(X[0])-1], Y[0][0], Y[len(Y)-1][len(Y[len(Y)-1])-1]])
         fig.savefig(outdir+"/"+name)
     elif(len(np.shape(histogram)) == 3):
+        print "3D"
         print np.shape(edges)
         fig = plt.figure()
         for i in range(0, np.shape(histogram)[0]):
@@ -232,11 +238,13 @@ if __name__ == '__main__':
         weights = create_weights()
 
     input_data = create_array(args.data, args.dimension)
-    # print "input_data:\n", input_data
+    # print "input_data:\n", n_events=input_data
     # print np.shape(input_data)
     edges = None
     if args.use_given_edges:
         edges = create_edges(args.bins, args.dimension)
+    if edges is None:
+        edges = args.bins
     print "Input_data: "
     print input_data
     print "----------------------"
@@ -245,12 +253,11 @@ if __name__ == '__main__':
         print("Starting full histogramming")
 
         # First with double precision
-        with gpu_hist.GPUHist(FTYPE=FTYPE, no_of_dimensions=args.dimension,
-                no_of_bins=args.bins, edges=edges) as histogrammer:
+        with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
             histogram_d_gpu_shared, edges_d_gpu_shared = histogrammer.get_hist(
-                                                    input_data, shared=True)
+                                        bins=edges, n_events=input_data, shared=True)
             histogram_d_gpu_global, edges_d_gpu_global = histogrammer.get_hist(
-                                                    input_data, shared=False)
+                                        bins=edges, n_events=input_data, shared=False)
         if edges is None:
             histogram_d_numpy, edges_d = np.histogramdd(input_data,
                     bins=args.bins, weights=weights)
@@ -259,12 +266,11 @@ if __name__ == '__main__':
                     weights=weights)
         # Next with single precision
         FTYPE = np.float32
-        with gpu_hist.GPUHist(FTYPE=FTYPE, no_of_dimensions=args.dimension,
-                no_of_bins=args.bins, edges=edges) as histogrammer:
+        with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
             histogram_s_gpu_shared, edges_s_gpu_shared = histogrammer.get_hist(
-                                                    input_data, shared=True)
+                                            bins=edges, n_events=input_data, shared=True)
             histogram_s_gpu_global, edges_s_gpu_global = histogrammer.get_hist(
-                                                    input_data, shared=False)
+                                        bins=edges, n_events=input_data, shared=False)
         if edges is None:
             histogram_s_numpy, edges_s = np.histogramdd(input_data,
                     bins=args.bins, weights=weights)
@@ -289,21 +295,19 @@ if __name__ == '__main__':
         print("Starting histogramming on GPU only")
         # if not args.all_precisions and args.single_precision then this is
         # single precision. Hence the missing "d" or "s" in the name.
-        with gpu_hist.GPUHist(FTYPE=FTYPE, no_of_dimensions=args.dimension,
-                no_of_bins=args.bins, edges=edges) as histogrammer:
+        with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
             histogram_gpu_shared, edges_gpu_shared = histogrammer.get_hist(
-                                                    input_data, shared=True)
-        with gpu_hist.GPUHist(FTYPE=FTYPE, no_of_dimensions=args.dimension,
-                no_of_bins=args.bins, edges=edges) as histogrammer:
+                                    bins=edges, n_events=input_data, shared=True)
+        with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
             histogram_gpu_global, edges_gpu_global = histogrammer.get_hist(
-                                                    input_data, shared=False)
+                                    bins=edges, n_events=input_data, shared=False)
         if args.all_precisions:
             FTYPE = np.float32
-            with gpu_hist.GPUHist(FTYPE=FTYPE,
-                    no_of_dimensions=args.dimension,
-                    no_of_bins=args.bins, edges=edges) as histogrammer:
-                histogram_s_gpu_shared, edges_s_gpu_shared = histogrammer.get_hist(input_data, shared=True)
-                histogram_s_gpu_global, edges_s_gpu_global = histogrammer.get_hist(input_data, shared=False)
+            with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
+                histogram_s_gpu_shared, edges_s_gpu_shared = histogrammer.get_hist(
+                                        bins=edges, n_events=input_data, shared=True)
+                histogram_s_gpu_global, edges_s_gpu_global = histogrammer.get_hist(
+                                        bins=edges, n_events=input_data, shared=False)
             plot_histogram(histogram_gpu_shared, edges_gpu_shared, args.outdir,
                     "GPU shared memory, double", args.bins)
             plot_histogram(histogram_gpu_global, edges_gpu_global, args.outdir,
@@ -325,16 +329,14 @@ if __name__ == '__main__':
 
     if args.GPU_shared and not args.GPU_both:
         print("Starting histogramming on GPU with shared memory")
-        with gpu_hist.GPUHist(FTYPE=FTYPE, no_of_dimensions=args.dimension,
-                no_of_bins=args.bins, edges=edges) as histogrammer:
+        with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
             histogram_gpu_shared, edges_gpu_shared = histogrammer.get_hist(
-                                                    input_data, shared=True)
+                                bins=edges, n_events=input_data, shared=True)
         if args.all_precisions:
             FTYPE = np.float32
-            with gpu_hist.GPUHist(FTYPE=FTYPE,
-                    no_of_dimensions=args.dimension,
-                    no_of_bins=args.bins, edges=edges) as histogrammer:
-                histogram_s_gpu_shared, edges_s_gpu_shared = histogrammer.get_hist(input_data, shared=True)
+            with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
+                histogram_s_gpu_shared, edges_s_gpu_shared = histogrammer.get_hist(
+                                    bins=edges, n_events=input_data, shared=True)
             plot_histogram(histogram_gpu_shared, edges_gpu_shared, args.outdir,
                     "GPU shared memory, double", args.bins)
             plot_histogram(histogram_s_gpu_shared, edges_s_gpu_shared,
@@ -350,16 +352,14 @@ if __name__ == '__main__':
 
     if args.GPU_global and not args.GPU_both:
         print("Starting histogramming on GPU with global memory")
-        with gpu_hist.GPUHist(FTYPE=FTYPE, no_of_dimensions=args.dimension,
-                no_of_bins=args.bins, edges=edges) as histogrammer:
+        with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
             histogram_gpu_global, edges_gpu_global = histogrammer.get_hist(
-                                                    input_data, shared=False)
+                                bins=edges, n_events=input_data, shared=False)
         if args.all_precisions:
             FTYPE = np.float32
-            with gpu_hist.GPUHist(FTYPE=FTYPE,
-                    no_of_dimensions=args.dimension,
-                    no_of_bins=args.bins, edges=edges) as histogrammer:
-                histogram_s_gpu_global, edges_s_gpu_global = histogrammer.get_hist(input_data, shared=False)
+            with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
+                histogram_s_gpu_global, edges_s_gpu_global = histogrammer.get_hist(
+                                bins=edges, n_events=input_data, shared=False)
             plot_histogram(histogram_gpu_global, edges_gpu_global, args.outdir,
                     "GPU global memory, double", args.bins)
             plot_histogram(histogram_s_gpu_global, edges_s_gpu_global,
