@@ -169,6 +169,16 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
         print "Plots are only availale for 3 or less dimensions. Aborting"
 
 
+def plot_timings(timings, iterations):
+    """Print the timings from --test.
+    timings have following order:
+    timings [dimensions] 1 to 4
+            [n_elements] 10e3 to 10e6
+            [bins] 5, 50 and 500
+            [precision] single_precision, double_precision
+            [Code] CPU, GPU_global, GPU_shared
+    """
+    print np.shape(timings)
 
 
 if __name__ == '__main__':
@@ -255,18 +265,22 @@ if __name__ == '__main__':
         edges = args.bins
 
     if args.test:
-        tests = 100
-        for d in range(2,5):
+        tests = 10
+        timings = []
+        for d in range(1,3):
+            d_timings = []
             n_elements = 100
-            for j in range(0, 4):
+            for j in range(0, 2):
+                e_timings = []
                 n_elements = n_elements * 10
                 bins = 5
-                for k in range(0,3):
+                for k in range(0,2):
+                    bin_timings_single = []
+                    bin_timings_double = []
                     if k != 0:
                         bins = bins * 10
                     print "Starting with ", n_elements, " elements, ", d, " dimensions and ", bins, " bins"
-
-                    timings = []
+                    tmp_timings = []
                     # Start with CPU
                     # Single precision
                     FTYPE = np.float32
@@ -281,7 +295,8 @@ if __name__ == '__main__':
                         histogram_d_numpy, edges_d = np.histogramdd(input_data,
                                 bins=bins, weights=weights)
                     end = timer()
-                    timings.append(end-start)
+                    bin_timings_single.append(end-start)
+                    tmp_timings.append(end-start)
                     # GPU global memory
                     start = timer()
                     with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
@@ -289,7 +304,8 @@ if __name__ == '__main__':
                             histogram_gpu_global, edges_gpu_global = histogrammer.get_hist(
                                             bins=edges, n_events=input_data, shared=False)
                     end = timer()
-                    timings.append(end-start)
+                    bin_timings_single.append(end-start)
+                    tmp_timings.append(end-start)
                     # GPU shared memory
                     start = timer()
                     with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
@@ -297,7 +313,8 @@ if __name__ == '__main__':
                             histogram_gpu_shared, edges_gpu_shared = histogrammer.get_hist(
                                             bins=edges, n_events=input_data, shared=True)
                     end = timer()
-                    timings.append(end-start)
+                    bin_timings_single.append(end-start)
+                    tmp_timings.append(end-start)
 
                     # Start with CPU
                     # Double precision
@@ -312,7 +329,8 @@ if __name__ == '__main__':
                         histogram_d_numpy, edges_d = np.histogramdd(input_data,
                                 bins=bins, weights=weights)
                     end = timer()
-                    timings.append(end-start)
+                    bin_timings_double.append(end-start)
+                    tmp_timings.append(end-start)
                     # GPU global memory
                     start = timer()
                     with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
@@ -320,7 +338,8 @@ if __name__ == '__main__':
                             histogram_gpu_global, edges_gpu_global = histogrammer.get_hist(
                                             bins=edges, n_events=input_data, shared=False)
                     end = timer()
-                    timings.append(end-start)
+                    bin_timings_double.append(end-start)
+                    tmp_timings.append(end-start)
                     # GPU shared memory
                     start = timer()
                     with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
@@ -328,8 +347,10 @@ if __name__ == '__main__':
                             histogram_gpu_shared, edges_gpu_shared = histogrammer.get_hist(
                                             bins=edges, n_events=input_data, shared=True)
                     end = timer()
-                    timings.append(end-start)
+                    bin_timings_double.append(end-start)
+                    tmp_timings.append(end-start)
 
+                    e_timings.append([bin_timings_single, bin_timings_double])
                     # Print timings
                     print "####################################################"
                     print "Elements per dimension: ", n_elements
@@ -338,13 +359,17 @@ if __name__ == '__main__':
                     print "Bins per dimension: ", bins
                     print "Total bins: ", d*bins
                     print "Single precision with ", tests, " iterations:"
-                    print "CPU:        ", timings[0]
-                    print "GPU global: ", timings[1]
-                    print "GPU shared: ", timings[2]
+                    print "CPU:        ", tmp_timings[0]
+                    print "GPU global: ", tmp_timings[1]
+                    print "GPU shared: ", tmp_timings[2]
                     print "Double precision with ", tests, " iterations:"
-                    print "CPU:        ", timings[3]
-                    print "GPU global: ", timings[4]
-                    print "GPU shared: ", timings[5]
+                    print "CPU:        ", tmp_timings[3]
+                    print "GPU global: ", tmp_timings[4]
+                    print "GPU shared: ", tmp_timings[5]
+                d_timings.append(e_timings)
+            timings.append(d_timings)
+        if args.outdir is not None:
+            plot_timings(timings, tests)
         sys.exit()
 
     if args.full:
