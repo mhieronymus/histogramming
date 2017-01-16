@@ -256,7 +256,7 @@ if __name__ == '__main__':
 
     if args.test:
         tests = 100
-        for d in range(1,5):
+        for d in range(2,5):
             n_elements = 100
             for j in range(0, 4):
                 n_elements = n_elements * 10
@@ -264,7 +264,7 @@ if __name__ == '__main__':
                 for k in range(0,3):
                     if k != 0:
                         bins = bins * 10
-                    # print "Starting with ", n_elements, " elements, ", d, " dimensions and ", bins, " bins"
+                    print "Starting with ", n_elements, " elements, ", d, " dimensions and ", bins, " bins"
 
                     timings = []
                     # Start with CPU
@@ -337,14 +337,14 @@ if __name__ == '__main__':
                     print "Total elements: ", d*n_elements
                     print "Bins per dimension: ", bins
                     print "Total bins: ", d*bins
-                    # print "Single precision with ", tests, " iterations:"
-                    # print "CPU:        ", timings[0]
-                    # print "GPU global: ", timings[1]
-                    # print "GPU shared: ", timings[2]
-                    print "Double precision with ", tests, " iterations:"
+                    print "Single precision with ", tests, " iterations:"
                     print "CPU:        ", timings[0]
                     print "GPU global: ", timings[1]
                     print "GPU shared: ", timings[2]
+                    print "Double precision with ", tests, " iterations:"
+                    print "CPU:        ", timings[3]
+                    print "GPU global: ", timings[4]
+                    print "GPU shared: ", timings[5]
         sys.exit()
 
     if args.full:

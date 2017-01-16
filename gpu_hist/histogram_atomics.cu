@@ -8,20 +8,28 @@
 #define fType %(c_ftype)s
 #define iType %(c_itype)s
 #define uiType %(c_uitype)s
+#define changeType %(c_changetype)s
 // See ieee floating point specification
 #define CUDART_INF_F __ull_as_fType(0x7ff0000000000000ULL)
 #define CUDART_NEG_INF_F __ull_as_fType(0xfff0000000000000ULL)
 
 __device__ fType __ull_as_fType(unsigned long long int a)
 {
-    union {unsigned long long a; fType b;} u;
+    union {unsigned long long int a; fType b;} u;
     u.a = a;
     return u.b;
 }
 
-__device__ unsigned long long int __fType_as_ull(fType a)
+__device__ fType __change_as_fType(changeType a)
 {
-    union {fType a; unsigned long long int b;} u;
+    union {changeType a; fType b;} u;
+    u.a = a;
+    return u.b;
+}
+
+__device__ unsigned long long int __fType_as_change(fType a)
+{
+    union {fType a; changeType b;} u;
     u.a = a;
     return u.b;
 }
@@ -31,26 +39,26 @@ __device__ unsigned long long int __fType_as_ull(fType a)
 // information.
 __device__ fType atomicMaxfType(fType *address, fType val)
 {
-    unsigned long long int* address_as_ull = (unsigned long long int*) address;
-    unsigned long long int old = *address_as_ull, assumed;
-    while(val > __ull_as_fType(old))
+    changeType* address_as_ull = (changeType*) address;
+    changeType old = *address_as_ull, assumed;
+    while(val > __change_as_fType(old))
     {
          assumed = old;
-         old = atomicCAS(address_as_ull, assumed, __fType_as_ull(val));
+         old = atomicCAS(address_as_ull, assumed, __fType_as_change(val));
     }
-    return __ull_as_fType(old);
+    return __change_as_fType(old);
 }
 
 __device__ fType atomicMinfType(fType *address, fType val)
 {
-    unsigned long long int* address_as_ull = (unsigned long long int*) address;
-    unsigned long long int old = *address_as_ull, assumed;
-    while(val < __ull_as_fType(old))
+    changeType* address_as_ull = (changeType*) address;
+    changeType old = *address_as_ull, assumed;
+    while(val < __change_as_fType(old))
     {
         assumed = old;
-        old = atomicCAS(address_as_ull, assumed, __fType_as_ull(val));
+        old = atomicCAS(address_as_ull, assumed, __fType_as_change(val));
     }
-    return __ull_as_fType(old);
+    return __change_as_fType(old);
 }
 
 __global__ void max_min_reduce(const fType *d_array, const iType n_elements,

@@ -29,6 +29,7 @@ class GPUHist(object):
     C_HIST_TYPE = 'unsigned int'
     HIST_TYPE = np.uint32
     ITYPE = np.uint32
+    C_CHANGETYPE = 'unsigned long long int'
 
     def __init__(self, FTYPE=np.float64):
         # Set some default types.
@@ -36,6 +37,7 @@ class GPUHist(object):
             self.C_FTYPE = 'float'
             self.C_PRECISION_DEF = 'SINGLE_PRECISION'
             self.FTYPE = FTYPE
+            self.C_CHANGETYPE = 'int'
         # Might be useful. PISA used it for atomic cuda_utils.h with
         # custom atomic_add for floats and doubles.
         #include_dirs = [os.path.abspath(find_resource('../gpu_hist'))]
@@ -43,7 +45,8 @@ class GPUHist(object):
             c_precision_def=self.C_PRECISION_DEF,
             c_ftype=self.C_FTYPE,
             c_itype=self.C_ITYPE,
-            c_uitype=self.C_HIST_TYPE
+            c_uitype=self.C_HIST_TYPE,
+            c_changetype=self.C_CHANGETYPE
         )
         include_dirs = ['/gpu_hist']
         # keep for compiler output, no_extern_c: allow name manling
@@ -146,7 +149,6 @@ class GPUHist(object):
                 * np.dtype(self.HIST_TYPE).itemsize)
         # Define shared memory for max- and min-reduction
         self.shared = (self.block_dim[0] * np.dtype(self.C_FTYPE).itemsize * 2)
-
         # Check if shared memory can be used
         if shared:
             if (self.n_flat_bins * np.dtype(self.HIST_TYPE).itemsize) > self.shared_memory:
@@ -271,12 +273,14 @@ class GPUHist(object):
             C_FTYPE = 'float'
             C_PRECISION_DEF = 'SINGLE_PRECISION'
             self.FTYPE = FTYPE
+            C_CHANGETYPE = 'int'
             sys.stderr.write("Histogramming is set to single precision (FP32) "
                     "mode.\n\n")
         elif FTYPE == np.float64:
             C_FTYPE = 'double'
             C_PRECISION_DEF = 'DOUBLE_PRECISION'
             self.FTYPE = FTYPE
+            C_CHANGETYPE = 'unsigned long long int'
             sys.stderr.write("Histogramming is set to double precision (FP64) "
                     "mode.\n\n")
         else:
