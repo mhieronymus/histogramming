@@ -17,7 +17,6 @@ class GPUHist(object):
     Basic implemention is based on
     https://devblogs.nvidia.com/parallelforall/gpu-pro-tip-fast-histograms-using-shared-atomics-maxwell/
     and modified by M. Hieronymus.
-
     Parameters
     ----------
     FTYPE : np.float64 or np.float32
@@ -76,18 +75,18 @@ class GPUHist(object):
                 cuda.device_attribute.MULTIPROCESSOR_COUNT)
         self.memory, total = cuda.mem_get_info()
 
-        print "################################################################"
-        print "Your device has following attributes:"
-        print "Max threads per block: ", self.max_threads_per_block
-        print "Max x-dimension for block : ", self.max_block_dim_x
-        print "Max x-dimension for grid: ", self.max_grid_dim_x
-        print "Warp size: ", self.warp_size
-        print "Max shared memory per block: ", self.shared_memory/1024, "Kbytes"
-        print "Total constant memory: ", self.constant_memory/1024, "Kbytes"
-        print "Max threads per multiprocessor: ", self.threads_per_mp
-        print "Number of multiprocessors: ", self.mp
-        print "Available global memory: ", self.memory/(1024*1024), " Mbytes"
-        print "################################################################"
+        # print "################################################################"
+        # print "Your device has following attributes:"
+        # print "Max threads per block: ", self.max_threads_per_block
+        # print "Max x-dimension for block : ", self.max_block_dim_x
+        # print "Max x-dimension for grid: ", self.max_grid_dim_x
+        # print "Warp size: ", self.warp_size
+        # print "Max shared memory per block: ", self.shared_memory/1024, "Kbytes"
+        # print "Total constant memory: ", self.constant_memory/1024, "Kbytes"
+        # print "Max threads per multiprocessor: ", self.threads_per_mp
+        # print "Number of multiprocessors: ", self.mp
+        # print "Available global memory: ", self.memory/(1024*1024), " Mbytes"
+        # print "################################################################"
 
 
     def clear(self):
@@ -99,7 +98,6 @@ class GPUHist(object):
     # TODO: Check if shared memory or not
     def get_hist(self, n_events, shared=True, bins=10, normed=False, weights=None):
         """Retrive histogram with given events and edges
-
         Parameters
         ----------
         bins: If edges, than with the rightmost edge!
@@ -150,7 +148,7 @@ class GPUHist(object):
         if shared:
             if (self.n_flat_bins * np.dtype(self.HIST_TYPE).itemsize) > self.shared_memory:
                 shared = False
-                print "Not enough shared memory available. Switching to global memory usage."
+                # print "Not enough shared memory available. Switching to global memory usage."
         # Copy the  arrays
         d_events = cuda.mem_alloc(n_events.nbytes)
         cuda.memcpy_htod(d_events, n_events)
