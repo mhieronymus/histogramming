@@ -269,39 +269,35 @@ if __name__ == '__main__':
                     timings = []
                     # Start with CPU
                     # Single precision
-                    # FTYPE = np.float32
-                    # input_data = create_array(n_elements, d)
-                    # if args.use_given_edges:
-                    #     edges = create_edges(bins, d)
-                    # if edges is None:
-                    #     edges = bins
-                    # if n_elements == 1000000:
-                    #     print "elements: ", np.shape(input_data)
-                    #     print np.shape(edges)
-                    # start = timer()
-                    # for i in range(0, tests):
-                    #     histogram_d_numpy, edges_d = np.histogramdd(input_data,
-                    #             bins=bins, weights=weights)
-                    # end = timer()
-                    # timings.append(end-start)
-                    # # GPU global memory
-                    # start = timer()
-                    # with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
-                    #     for i in range(0, tests):
-                    #         print i
-                    #         histogram_gpu_global, edges_gpu_global = histogrammer.get_hist(
-                    #                         bins=edges, n_events=input_data, shared=False)
-                    # end = timer()
-                    # timings.append(end-start)
-                    # # GPU shared memory
-                    # start = timer()
-                    # with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
-                    #     for i in range(0, tests):
-                    #         print i
-                    #         histogram_gpu_shared, edges_gpu_shared = histogrammer.get_hist(
-                    #                         bins=edges, n_events=input_data, shared=True)
-                    # end = timer()
-                    # timings.append(end-start)
+                    FTYPE = np.float32
+                    input_data = create_array(n_elements, d)
+                    if args.use_given_edges:
+                        edges = create_edges(bins, d)
+                    if edges is None:
+                        edges = bins
+
+                    start = timer()
+                    for i in range(0, tests):
+                        histogram_d_numpy, edges_d = np.histogramdd(input_data,
+                                bins=bins, weights=weights)
+                    end = timer()
+                    timings.append(end-start)
+                    # GPU global memory
+                    start = timer()
+                    with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
+                        for i in range(0, tests):
+                            histogram_gpu_global, edges_gpu_global = histogrammer.get_hist(
+                                            bins=edges, n_events=input_data, shared=False)
+                    end = timer()
+                    timings.append(end-start)
+                    # GPU shared memory
+                    start = timer()
+                    with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
+                        for i in range(0, tests):
+                            histogram_gpu_shared, edges_gpu_shared = histogrammer.get_hist(
+                                            bins=edges, n_events=input_data, shared=True)
+                    end = timer()
+                    timings.append(end-start)
 
                     # Start with CPU
                     # Double precision

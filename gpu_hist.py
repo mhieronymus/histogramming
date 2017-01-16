@@ -32,7 +32,10 @@ class GPUHist(object):
 
     def __init__(self, FTYPE=np.float64):
         # Set some default types.
-        self.FTYPE = FTYPE
+        if FTYPE == np.float32:
+            self.C_FTYPE = 'float'
+            self.C_PRECISION_DEF = 'SINGLE_PRECISION'
+            self.FTYPE = FTYPE
         # Might be useful. PISA used it for atomic cuda_utils.h with
         # custom atomic_add for floats and doubles.
         #include_dirs = [os.path.abspath(find_resource('../gpu_hist'))]
