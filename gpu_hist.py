@@ -112,6 +112,9 @@ class GPUHist(object):
         edges = None
         bins_per_dimension = None
         n_edges = None
+        d_edges_in = None
+        d_max_in = None
+        d_min_in = None
         if type(bins) is int:
             no_of_bins = self.ITYPE(bins)
             self.n_flat_bins = self.ITYPE(no_of_bins ** no_of_dimensions)
@@ -262,6 +265,16 @@ class GPUHist(object):
                 edges.append(edges_d)
         elif edges is None:
             print "Different amount of bins per dimension is not implemented"
+
+        self.d_hist.free()
+        d_tmp_hist.free()
+        d_events.free()
+        if d_edges_in is not None:
+            d_edges_in.free()
+        if d_max_in is not None:
+            d_max_in.free()
+        if d_min_in is not None:
+            d_min_in.free()
         return self.hist, edges
 
 
