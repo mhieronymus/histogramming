@@ -14,7 +14,7 @@ All goals in detail:
  * Support single and double precision (requirement from PISA)
 
 ## Prerequisites
-PyCUDA, CUDA etc.
+PyCUDA, CUDA and psutils
 
 ## Usage
 Simply type `python main.py` and use some of the following options:

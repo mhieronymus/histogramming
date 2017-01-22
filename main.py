@@ -2,21 +2,22 @@
 # date:    November 2016
 # Debug purpose: cuda-memcheck python main.py --GPU_global --CPU --outdir plots -b 4 -d 16
 # python main.py --GPU_global --CPU --outdir plots -b 10 -d 5000 --use_given_edges
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.ticker import FormatStrFormatter
-import random as rnd
 import argparse
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import gpu_hist
-
-import pycuda.driver as cuda
-import pycuda.autoinit
-
-from timeit import default_timer as timer
-
+import matplotlib.gridspec as gridspec
+import matplotlib.patches as mpatches
+from matplotlib.patches import Rectangle
+import matplotlib.pyplot as plt
+from matplotlib.ticker import FormatStrFormatter
+import numpy as np
 import os
+from psutil import virtual_memory
+import pycuda.autoinit
+import pycuda.driver as cuda
+import random as rnd
 import sys
+from timeit import default_timer as timer
 
 FTYPE = np.float64
 
@@ -97,16 +98,15 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
     ax = fig.add_subplot(111)
     ax.grid(b=True, which='major')
     ax.grid(b=True, which='minor', linestyle=':')
-    print "\nHistogram:", name
-    print np.sum(histogram)
-    print histogram
+    # print "\nHistogram:", name
+    # print np.sum(histogram)
+    # print histogram
     # print "With edges:"
     # print edges
     # print np.shape(edges)
     # print np.shape(histogram)
     # print len(np.shape(histogram))
     if(len(np.shape(histogram)) == 1):
-        print "1D"
         width = 60
         if edges is None:
             edges = np.arange(-360, 360, (720/no_of_bins))
@@ -124,7 +124,6 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
             tick.label.set_fontsize(9)
         fig.savefig(outdir+"/"+name)
     elif(len(np.shape(histogram)) == 2):
-        print "2D"
         X, Y = np.meshgrid(edges[0], edges[1])
         plt.pcolormesh(X, Y, histogram, cmap='rainbow')
         cbar = plt.colorbar(orientation='vertical')
@@ -141,8 +140,6 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
         plt.axis([X[0][0], X[0][len(X[0])-1], Y[0][0], Y[len(Y)-1][len(Y[len(Y)-1])-1]])
         fig.savefig(outdir+"/"+name)
     elif(len(np.shape(histogram)) == 3):
-        print "3D"
-        print np.shape(edges)
         fig = plt.figure()
         for i in range(0, np.shape(histogram)[0]):
             subplot = len(edges[0])/2*100 + 20 + i + 1
@@ -169,7 +166,8 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
         print "Plots are only availale for 3 or less dimensions. Aborting"
 
 
-def plot_timings(timings, iterations):
+def plot_timings(timings, iterations, amount_of_elements, amount_of_bins,
+        outdir, name):
     """Print the timings from --test.
     timings have following order:
     timings [dimensions] 1 to 4
@@ -178,7 +176,165 @@ def plot_timings(timings, iterations):
             [precision] single_precision, double_precision
             [Code] CPU, GPU_global, GPU_shared
     """
-    print np.shape(timings)
+    path = [outdir]
+    mkdir(os.path.join(*path), warn=False)
+    width = 1.0
+    # We start with single precision
+    # plots x-axis: n_elements, y_axis1: timings, y_axis2: speedup
+    gs = gridspec.GridSpec(4, 2, width_ratios=[1,1], height_ratios=[0.1,40,40, 0.05])
+    plt.suptitle('Histogram: Speedup and runtime with CPU and GPU', fontsize=16)
+    ax1 = plt.subplot(gs[2])
+    # Get all the data
+    seq_time1 = []
+    running_time1_global = []
+    running_time1_shared = []
+    n_elements1 = []
+    for d in range(0, len(timings)):
+        for n in range(0, len(timings[d])):
+            time1 = 0.0
+            time2 = 0.0
+            time3 = 0.0
+            for b in range(0, len(timings[d][n])):
+                time1 = time1+timings[d][n][b][0][0]
+                time2 = time2+timings[d][n][b][0][1]
+                time3 = time3+timings[d][n][b][0][2]
+            n_elements1.append((d+1)*amount_of_elements[n])
+            seq_time1.append(time1/len(timings[d][n]))
+            running_time1_global.append(time2/len(timings[d][n]))
+            running_time1_shared.append(time3/len(timings[d][n]))
+    create_subfig(seq_time1, running_time1_global, running_time1_shared,
+            np.asarray(n_elements1), ax1, width,
+            'Number of elements',
+            'Subject to number of elements (SP)', True)
+
+    # plots x-axis: bins, y_axis1: timings, y_axis2: speedup
+    ax2 = plt.subplot(gs[3])
+    seq_time2 = []
+    running_time2_global = []
+    running_time2_shared = []
+    n_bins2 = []
+    for d in range(0, len(timings)):
+        for b in range(0, len(timings[d][n])):
+            time1 = 0.0
+            time2 = 0.0
+            time3 = 0.0
+            for n in range(0, len(timings[d])):
+                time1 = time1+timings[d][n][b][0][0]
+                time2 = time2+timings[d][n][b][0][1]
+                time3 = time3+timings[d][n][b][0][2]
+            n_bins2.append(pow(amount_of_bins[b], (d+1)))
+            seq_time2.append(time1/len(timings[d]))
+            running_time2_global.append(time2/len(timings[d]))
+            running_time2_shared.append(time3/len(timings[d]))
+    create_subfig(seq_time2, running_time2_global, running_time2_shared,
+            np.asarray(n_bins2), ax2, width, 'Number of bins',
+            'Subject to number of bins (SP)', True)
+    # Next double precision
+    # plots x-axis: n_elements, y_axis1: timings, y_axis2: speedup
+    ax3 = plt.subplot(gs[4])
+    seq_time3 = []
+    running_time3_global = []
+    running_time3_shared = []
+    n_elements3 = []
+    for d in range(0, len(timings)):
+        for n in range(0, len(timings[d])):
+            time1 = 0.0
+            time2 = 0.0
+            time3 = 0.0
+            for b in range(0, len(timings[d][n])):
+                time1 = time1+timings[d][n][b][1][0]
+                time2 = time2+timings[d][n][b][1][1]
+                time3 = time3+timings[d][n][b][1][2]
+            n_elements3.append((d+1)*amount_of_elements[n])
+            seq_time3.append(time1/len(timings[d][n]))
+            running_time3_global.append(time2/len(timings[d][n]))
+            running_time3_shared.append(time3/len(timings[d][n]))
+    create_subfig(seq_time3, running_time3_global, running_time3_shared,
+            np.asarray(n_elements3), ax3, width,
+            'Number of elements',
+            'Subject to number of elements (DP)', True)
+    # plots x-axis: bins, y_axis1: timings, y_axis2: speedup
+    ax4 = plt.subplot(gs[5])
+    seq_time4 = []
+    running_time4_global = []
+    running_time4_shared = []
+    n_bins4 = []
+    for d in range(0, len(timings)):
+        for b in range(0, len(timings[d][n])):
+            time1 = 0.0
+            time2 = 0.0
+            time3 = 0.0
+            for n in range(0, len(timings[d])):
+                time1 = time1+timings[d][n][b][1][0]
+                time2 = time2+timings[d][n][b][1][1]
+                time3 = time3+timings[d][n][b][1][2]
+            n_bins4.append(pow(amount_of_bins[b], (d+1)))
+            seq_time4.append(time1/len(timings[d]))
+            running_time4_global.append(time2/len(timings[d]))
+            running_time4_shared.append(time3/len(timings[d]))
+    create_subfig(seq_time4, running_time4_global, running_time4_shared,
+            np.asarray(n_bins4), ax4, width, 'Number of bins',
+            'Subject to number of bins (DP)', True)
+    plt.tight_layout()
+    plt.savefig(outdir+"/"+name, dpi=600)
+
+
+def create_subfig(seq_time1, running_time1_global, running_time1_shared,
+        n_elements, ax1, width, x_name, title, not_using_bins):
+    """
+    This method is called from plot_timings(). Subplots with timings and
+    speedup are created. It handles the annotations and formatting.
+    """
+    ax1.set_title(title, fontsize=9)
+    ax1.grid(b=True, which='major')
+    ax1.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+    ax1.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+    if not_using_bins:
+        ax1.set_xscale('log')
+    ax1_speedup = ax1.twinx()
+    speedup1_global = []
+    for i in range(0, len(running_time1_global)):
+        speedup1_global.append(seq_time1[i]/running_time1_global[i])
+    speedup1_shared = []
+    for i in range(0, len(running_time1_shared)):
+        speedup1_shared.append(seq_time1[i]/running_time1_shared[i])
+    width_list = []
+    for n in n_elements:
+        width_list.append(n/3 * width)
+    ax1_speedup.plot(n_elements, speedup1_global, color='black', marker="x")
+    ax1_speedup.plot(n_elements, speedup1_shared, color='black', linestyle='--',
+            marker="o", fillstyle='none')
+    rects = ax1.bar(n_elements-width_list, running_time1_global,
+            width = width_list, color=(0.7,0.7,0.8), align='edge',
+            label="GPU global memory")
+    rects2 = ax1.bar(n_elements, running_time1_shared, width = width_list,
+            color=(0.4,0.4,0.8), align='edge', label="GPU shared memory")
+    rects3 = ax1.bar(n_elements+width_list, running_time1_shared,
+            width = width_list, color=(0.4,0.7,0.8), align='edge',
+            label="CPU")
+    global_approach = mpatches.Patch(color=(0.7,0.7,0.8),
+            label='GPU global memory')
+    shared_approach = mpatches.Patch(color=(0.4,0.4,0.8),
+            label='GPU shared memory')
+    cpu_approach = mpatches.Patch(color=(0.4,0.7,0.8), label='CPU')
+    plt.legend(handles=[global_approach,shared_approach,cpu_approach],
+            bbox_to_anchor=(0.5, 0.0), loc=8,
+            bbox_transform=plt.gcf().transFigure,  ncol=3, fontsize=10)
+    ax1.set_xlabel(x_name, fontsize=8)
+    ax1.set_ylabel('Running time in seconds', fontsize=8)
+    ax1_speedup.set_ylabel('Speedup compared to CPU version', fontsize=8)
+    ax1_speedup.annotate('GPU global memory', xy=(n_elements[0]-0.5,
+            speedup1_global[0]+0.45),  xycoords='data', fontsize=7)
+    ax1_speedup.annotate('GPU shared memory', xy=(n_elements[1]+0.1,
+            speedup1_shared[1]+0.25),  xycoords='data', fontsize=7)
+    for tick in ax1.xaxis.get_major_ticks():
+        tick.label.set_fontsize(9)
+    for tick in ax1.yaxis.get_major_ticks():
+        tick.label.set_fontsize(9)
+    for label in ax1_speedup.yaxis.get_majorticklabels():
+        label.set_fontsize(9)
+    plt.xlim(n_elements[0]-width_list[0],
+            n_elements[len(n_elements)-1]+width_list[len(width_list)-1]*2)
 
 
 if __name__ == '__main__':
@@ -265,21 +421,29 @@ if __name__ == '__main__':
         edges = args.bins
 
     if args.test:
+        mem = virtual_memory()
+        available_memory = mem.available
+        amount_of_elements = [10e3, 10e4, 10e5, 10e6, 10e7, 10e8, 10e9, 10e10,
+                              10e11, 10e12]
+        max_elements_idx = 0
+        for i in amount_of_elements:
+            if available_memory > i:
+                max_elements_idx = max_elements_idx+1
+        amount_of_bins = [5, 50, 500, 5000]
         tests = 10
         timings = []
-        for d in range(1,3):
+        for d in range(1,2):
             d_timings = []
             n_elements = 100
-            for j in range(0, 2):
+            for j in range(0, max_elements_idx):
                 e_timings = []
                 n_elements = n_elements * 10
                 bins = 5
-                for k in range(0,2):
+                for k in range(0,4):
                     bin_timings_single = []
                     bin_timings_double = []
                     if k != 0:
                         bins = bins * 10
-                    print "Starting with ", n_elements, " elements, ", d, " dimensions and ", bins, " bins"
                     tmp_timings = []
                     # Start with CPU
                     # Single precision
@@ -369,7 +533,8 @@ if __name__ == '__main__':
                 d_timings.append(e_timings)
             timings.append(d_timings)
         if args.outdir is not None:
-            plot_timings(timings, tests)
+            plot_timings(timings, tests, amount_of_elements, amount_of_bins,
+                    args.outdir, "Speedup_test")
         sys.exit()
 
     if args.full:
