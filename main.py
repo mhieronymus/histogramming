@@ -191,17 +191,10 @@ def plot_timings(timings, iterations, amount_of_elements, amount_of_bins,
     n_elements1 = []
     for d in range(0, len(timings)):
         for n in range(0, len(timings[d])):
-            time1 = 0.0
-            time2 = 0.0
-            time3 = 0.0
-            for b in range(0, len(timings[d][n])):
-                time1 = time1+timings[d][n][b][0][0]
-                time2 = time2+timings[d][n][b][0][1]
-                time3 = time3+timings[d][n][b][0][2]
             n_elements1.append((d+1)*amount_of_elements[n])
-            seq_time1.append(time1/len(timings[d][n]))
-            running_time1_global.append(time2/len(timings[d][n]))
-            running_time1_shared.append(time3/len(timings[d][n]))
+            seq_time1.append(timings[d][n][0][0][0])
+            running_time1_global.append(timings[d][n][0][0][1])
+            running_time1_shared.append(timings[d][n][0][0][2])
     create_subfig(seq_time1, running_time1_global, running_time1_shared,
             np.asarray(n_elements1), ax1, width,
             'Number of elements',
@@ -215,17 +208,10 @@ def plot_timings(timings, iterations, amount_of_elements, amount_of_bins,
     n_bins2 = []
     for d in range(0, len(timings)):
         for b in range(0, len(timings[d][n])):
-            time1 = 0.0
-            time2 = 0.0
-            time3 = 0.0
-            for n in range(0, len(timings[d])):
-                time1 = time1+timings[d][n][b][0][0]
-                time2 = time2+timings[d][n][b][0][1]
-                time3 = time3+timings[d][n][b][0][2]
             n_bins2.append(pow(amount_of_bins[b], (d+1)))
-            seq_time2.append(time1/len(timings[d]))
-            running_time2_global.append(time2/len(timings[d]))
-            running_time2_shared.append(time3/len(timings[d]))
+            seq_time2.append(timings[d][len(timings[d])-1][b][0][0])
+            running_time2_global.append(timings[d][len(timings[d])-1][b][0][1])
+            running_time2_shared.append(timings[d][len(timings[d])-1][b][0][2])
     create_subfig(seq_time2, running_time2_global, running_time2_shared,
             np.asarray(n_bins2), ax2, width, 'Number of bins',
             'Subject to number of bins (SP)', True)
@@ -238,17 +224,10 @@ def plot_timings(timings, iterations, amount_of_elements, amount_of_bins,
     n_elements3 = []
     for d in range(0, len(timings)):
         for n in range(0, len(timings[d])):
-            time1 = 0.0
-            time2 = 0.0
-            time3 = 0.0
-            for b in range(0, len(timings[d][n])):
-                time1 = time1+timings[d][n][b][1][0]
-                time2 = time2+timings[d][n][b][1][1]
-                time3 = time3+timings[d][n][b][1][2]
             n_elements3.append((d+1)*amount_of_elements[n])
-            seq_time3.append(time1/len(timings[d][n]))
-            running_time3_global.append(time2/len(timings[d][n]))
-            running_time3_shared.append(time3/len(timings[d][n]))
+            seq_time3.append(timings[d][n][0][0][0])
+            running_time3_global.append(timings[d][n][0][0][1])
+            running_time3_shared.append(timings[d][n][0][0][2])
     create_subfig(seq_time3, running_time3_global, running_time3_shared,
             np.asarray(n_elements3), ax3, width,
             'Number of elements',
@@ -261,17 +240,10 @@ def plot_timings(timings, iterations, amount_of_elements, amount_of_bins,
     n_bins4 = []
     for d in range(0, len(timings)):
         for b in range(0, len(timings[d][n])):
-            time1 = 0.0
-            time2 = 0.0
-            time3 = 0.0
-            for n in range(0, len(timings[d])):
-                time1 = time1+timings[d][n][b][1][0]
-                time2 = time2+timings[d][n][b][1][1]
-                time3 = time3+timings[d][n][b][1][2]
             n_bins4.append(pow(amount_of_bins[b], (d+1)))
-            seq_time4.append(time1/len(timings[d]))
-            running_time4_global.append(time2/len(timings[d]))
-            running_time4_shared.append(time3/len(timings[d]))
+            seq_time4.append(timings[d][len(timings[d])-1][b][0][0])
+            running_time4_global.append(timings[d][len(timings[d])-1][b][0][1])
+            running_time4_shared.append(timings[d][len(timings[d])-1][b][0][2])
     create_subfig(seq_time4, running_time4_global, running_time4_shared,
             np.asarray(n_bins4), ax4, width, 'Number of bins',
             'Subject to number of bins (DP)', True)
@@ -309,7 +281,7 @@ def create_subfig(seq_time1, running_time1_global, running_time1_shared,
             label="GPU global memory")
     rects2 = ax1.bar(n_elements, running_time1_shared, width = width_list,
             color=(0.4,0.4,0.8), align='edge', label="GPU shared memory")
-    rects3 = ax1.bar(n_elements+width_list, running_time1_shared,
+    rects3 = ax1.bar(n_elements+width_list, seq_time1,
             width = width_list, color=(0.4,0.7,0.8), align='edge',
             label="CPU")
     global_approach = mpatches.Patch(color=(0.7,0.7,0.8),
@@ -324,16 +296,16 @@ def create_subfig(seq_time1, running_time1_global, running_time1_shared,
     ax1.set_ylabel('Running time in seconds', fontsize=8)
     ax1_speedup.set_ylabel('Speedup compared to CPU version', fontsize=8)
     ax1_speedup.annotate('GPU global memory', xy=(n_elements[0]-0.5,
-            speedup1_global[0]+0.45),  xycoords='data', fontsize=7)
+            speedup1_global[0]+0.85),  xycoords='data', fontsize=7)
     ax1_speedup.annotate('GPU shared memory', xy=(n_elements[1]+0.1,
-            speedup1_shared[1]+0.25),  xycoords='data', fontsize=7)
+            speedup1_shared[1]+0.65),  xycoords='data', fontsize=7)
     for tick in ax1.xaxis.get_major_ticks():
         tick.label.set_fontsize(9)
     for tick in ax1.yaxis.get_major_ticks():
         tick.label.set_fontsize(9)
     for label in ax1_speedup.yaxis.get_majorticklabels():
         label.set_fontsize(9)
-    plt.xlim(n_elements[0]-width_list[0],
+    plt.xlim(n_elements[0]-width_list[0]*2,
             n_elements[len(n_elements)-1]+width_list[len(width_list)-1]*2)
 
 
@@ -427,7 +399,7 @@ if __name__ == '__main__':
                               10e11, 10e12]
         max_elements_idx = 0
         for i in amount_of_elements:
-            if available_memory > i:
+            if available_memory > i*8:
                 max_elements_idx = max_elements_idx+1
         amount_of_bins = [5, 50, 500, 5000]
         tests = 10
@@ -516,20 +488,20 @@ if __name__ == '__main__':
 
                     e_timings.append([bin_timings_single, bin_timings_double])
                     # Print timings
-                    print "####################################################"
-                    print "Elements per dimension: ", n_elements
-                    print "Dimensions: ", d
-                    print "Total elements: ", d*n_elements
-                    print "Bins per dimension: ", bins
-                    print "Total bins: ", d*bins
-                    print "Single precision with ", tests, " iterations:"
-                    print "CPU:        ", tmp_timings[0]
-                    print "GPU global: ", tmp_timings[1]
-                    print "GPU shared: ", tmp_timings[2]
-                    print "Double precision with ", tests, " iterations:"
-                    print "CPU:        ", tmp_timings[3]
-                    print "GPU global: ", tmp_timings[4]
-                    print "GPU shared: ", tmp_timings[5]
+                    # print "####################################################"
+                    # print "Elements per dimension: ", n_elements
+                    # print "Dimensions: ", d
+                    # print "Total elements: ", d*n_elements
+                    # print "Bins per dimension: ", bins
+                    # print "Total bins: ", d*bins
+                    # print "Single precision with ", tests, " iterations:"
+                    # print "CPU:        ", tmp_timings[0]
+                    # print "GPU global: ", tmp_timings[1]
+                    # print "GPU shared: ", tmp_timings[2]
+                    # print "Double precision with ", tests, " iterations:"
+                    # print "CPU:        ", tmp_timings[3]
+                    # print "GPU global: ", tmp_timings[4]
+                    # print "GPU shared: ", tmp_timings[5]
                 d_timings.append(e_timings)
             timings.append(d_timings)
         if args.outdir is not None:
