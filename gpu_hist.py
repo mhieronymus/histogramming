@@ -120,6 +120,7 @@ class GPUHist(object):
                 "of dimensions (default is 1 for dimensions).\n\n")
         else:
             no_of_dimensions = self.ITYPE(len(n_events[0]))
+            len_n_events = len(n_events)
         edges = None
         bins_per_dimension = None
         n_edges = None
