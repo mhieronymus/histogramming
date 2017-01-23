@@ -136,7 +136,7 @@ __global__ void max_min_reduce(const fType *d_array, const iType n_elements,
 // Takes max and min value for each dimension and the number of bins and
 // returns a histogram with equally sized bins.
 __global__ void histogram_gmem_atomics(const fType *in,  const iType length,
-        const iType no_of_dimensions,  const iType no_of_bins,
+        const iType no_of_dimensions,  const iType *no_of_bins,
         const iType no_of_flat_bins, uiType *out, fType *max_in, fType *min_in)
 {
     unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -159,16 +159,16 @@ __global__ void histogram_gmem_atomics(const fType *in,  const iType length,
         int current_bin = 0;
         for(unsigned int d = 0; d < no_of_dimensions; d++)
         {
-            fType bin_width = (max_in[d]-min_in[d])/no_of_bins;
+            fType bin_width = (max_in[d]-min_in[d])/no_of_bins[d];
             fType val = in[i + d];
             // Get the bin in the current dimension
             int tmp_bin = (val-min_in[d])/bin_width;
-            if(tmp_bin >= no_of_bins) tmp_bin--;
+            if(tmp_bin >= no_of_bins[d]) tmp_bin--;
             // Get the right place in the histogram
             int power_bins = 1;
             for(unsigned int k=no_of_dimensions-1; k > d; k--)
             {
-                power_bins = no_of_bins * power_bins;
+                power_bins = no_of_bins[k] * power_bins;
             }
             current_bin += tmp_bin * power_bins;
         }
@@ -184,7 +184,7 @@ __global__ void histogram_gmem_atomics(const fType *in,  const iType length,
 // returns a histogram with equally sized bins.
 __global__ void histogram_gmem_atomics_with_edges(const fType *in,
         const iType length, const iType no_of_dimensions,
-        const iType no_of_bins, const iType no_of_flat_bins,
+        const iType *no_of_bins, const iType no_of_flat_bins,
         uiType *out, const fType *edges_in)
 {
     unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -210,14 +210,15 @@ __global__ void histogram_gmem_atomics_with_edges(const fType *in,
         {
             fType val = in[i + d];
             int tmp_bin = 0;
-            while(val > edges_in[(no_of_bins+1)*d+tmp_bin+1] && tmp_bin < no_of_bins)
+            while(val > edges_in[(no_of_bins[d]+1)*d+tmp_bin+1]
+                    && tmp_bin < no_of_bins[d])
             {
                  tmp_bin++;
             }
             int power_bins = 1;
             for(unsigned int k=no_of_dimensions-1; k > d; k--)
             {
-                power_bins = no_of_bins * power_bins;
+                power_bins = no_of_bins[k] * power_bins;
             }
             current_bin += tmp_bin * power_bins;
         }
@@ -231,7 +232,7 @@ __global__ void histogram_gmem_atomics_with_edges(const fType *in,
 }
 
 __global__ void histogram_smem_atomics(const fType *in,  const iType length,
-        const iType no_of_dimensions,  const iType no_of_bins,
+        const iType no_of_dimensions,  const iType *no_of_bins,
         const iType no_of_flat_bins, uiType *out, fType *max_in, fType *min_in)
 {
     unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -257,16 +258,16 @@ __global__ void histogram_smem_atomics(const fType *in,  const iType length,
         int current_bin = 0;
         for(unsigned int d = 0; d < no_of_dimensions; d++)
         {
-            fType bin_width = (max_in[d]-min_in[d])/no_of_bins;
+            fType bin_width = (max_in[d]-min_in[d])/no_of_bins[d];
             fType val = in[i + d];
             // Get the bin in the current dimension
             int tmp_bin = (val-min_in[d])/bin_width;
-            if(tmp_bin >= no_of_bins) tmp_bin--;
+            if(tmp_bin >= no_of_bins[d]) tmp_bin--;
             // Get the right place in the histogram
             int power_bins = 1;
             for(unsigned int k=no_of_dimensions-1; k > d; k--)
             {
-                power_bins = no_of_bins * power_bins;
+                power_bins = no_of_bins[k] * power_bins;
             }
             current_bin += tmp_bin * power_bins;
         }
@@ -287,7 +288,7 @@ __global__ void histogram_smem_atomics(const fType *in,  const iType length,
 
 __global__ void histogram_smem_atomics_with_edges(const fType *in,
         const iType length, const iType no_of_dimensions,
-        const iType no_of_bins, const iType no_of_flat_bins,
+        const iType *no_of_bins, const iType no_of_flat_bins,
         uiType *out, const fType *edges_in)
 {
     unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -314,14 +315,14 @@ __global__ void histogram_smem_atomics_with_edges(const fType *in,
         {
             fType val = in[i + d];
             int tmp_bin = 0;
-            while(val > edges_in[(no_of_bins+1)*d+tmp_bin+1] && tmp_bin < no_of_bins)
+            while(val > edges_in[(no_of_bins[d]+1)*d+tmp_bin+1] && tmp_bin < no_of_bins[d])
             {
                 tmp_bin++;
             }
             int power_bins = 1;
             for(unsigned int k=no_of_dimensions-1; k > d; k--)
             {
-                power_bins = no_of_bins * power_bins;
+                power_bins = no_of_bins[k] * power_bins;
             }
             current_bin += tmp_bin * power_bins;
         }
@@ -343,8 +344,7 @@ __global__ void histogram_smem_atomics_with_edges(const fType *in,
 }
 
 __global__ void histogram_final_accum(const uiType *in,
-        iType no_of_histograms, uiType *out,
-        iType no_of_bins, iType histo_length, iType no_of_dimensions)
+        const iType no_of_histograms, uiType *out, const iType histo_length)
 {
     unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
     unsigned int total_threads = blockDim.x * gridDim.x;
