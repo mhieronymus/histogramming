@@ -6,6 +6,7 @@ import argparse
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import gpu_hist
 import matplotlib.gridspec as gridspec
+import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 from matplotlib.patches import Rectangle
 import matplotlib.pyplot as plt
@@ -165,7 +166,7 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
 
 
 def plot_timings(timings, iterations, amount_of_elements, amount_of_bins,
-        outdir, name):
+        outdir, name, used_device_data):
     """Print the timings from --test.
     timings have following order:
     timings [dimensions] 1 to 4
@@ -180,7 +181,12 @@ def plot_timings(timings, iterations, amount_of_elements, amount_of_bins,
     # We start with single precision
     # plots x-axis: n_elements, y_axis1: timings, y_axis2: speedup
     gs = gridspec.GridSpec(4, 2, width_ratios=[1,1], height_ratios=[0.1,40,40, 0.05])
-    plt.suptitle('Histogram: Speedup and runtime with CPU and GPU', fontsize=16)
+    if used_device_data:
+        plot_title = ('Histogram: Speedup and runtime with CPU and GPU\n'
+                'using already allocated device arrays')
+    else:
+        plot_title = 'Histogram: Speedup and runtime with CPU and GPU'
+    plt.suptitle(plot_title, fontsize=16)
     ax1 = plt.subplot(gs[2])
     # Get all the data
     seq_time1 = []
@@ -271,15 +277,17 @@ def create_subfig(seq_time1, running_time1_global, running_time1_shared,
     width_list = []
     for n in n_elements:
         width_list.append(n/3 * width)
-    ax1_speedup.plot(n_elements, speedup1_global, color='black', marker="x")
-    ax1_speedup.plot(n_elements, speedup1_shared, color='black', linestyle='--',
-            marker="o", fillstyle='none')
-    rects = ax1.bar(n_elements-width_list, running_time1_global,
+    ax1_speedup.plot(n_elements, speedup1_global,
+            color='black', marker="x", label='Speedup with global memory')
+    ax1_speedup.plot(n_elements, speedup1_shared,
+            color='black', linestyle='--',
+            marker="o", fillstyle='none', label='Speedup with shared memory')
+    ax1.bar(n_elements-width_list, running_time1_global,
             width = width_list, color=(0.7,0.7,0.8), align='edge',
             label="GPU global memory")
-    rects2 = ax1.bar(n_elements, running_time1_shared, width = width_list,
+    ax1.bar(n_elements, running_time1_shared, width = width_list,
             color=(0.4,0.4,0.8), align='edge', label="GPU shared memory")
-    rects3 = ax1.bar(n_elements+width_list, seq_time1,
+    ax1.bar(n_elements+width_list, seq_time1,
             width = width_list, color=(0.4,0.7,0.8), align='edge',
             label="CPU")
     global_approach = mpatches.Patch(color=(0.7,0.7,0.8),
@@ -287,16 +295,17 @@ def create_subfig(seq_time1, running_time1_global, running_time1_shared,
     shared_approach = mpatches.Patch(color=(0.4,0.4,0.8),
             label='GPU shared memory')
     cpu_approach = mpatches.Patch(color=(0.4,0.7,0.8), label='CPU')
-    plt.legend(handles=[global_approach,shared_approach,cpu_approach],
+    speed_up_global = mlines.Line2D([], [], color='black', marker="x",
+            linestyle='-', label='Speedup with global memory')
+    speed_up_shared = mlines.Line2D([], [], color='black', linestyle='--',
+            marker="o", fillstyle='none', label='Speedup with shared memory')
+    plt.legend(handles=[global_approach,shared_approach,cpu_approach,
+            speed_up_global, speed_up_shared],
             bbox_to_anchor=(0.5, 0.0), loc=8,
             bbox_transform=plt.gcf().transFigure,  ncol=3, fontsize=10)
     ax1.set_xlabel(x_name, fontsize=8)
     ax1.set_ylabel('Running time in seconds', fontsize=8)
     ax1_speedup.set_ylabel('Speedup compared to CPU version', fontsize=8)
-    ax1_speedup.annotate('GPU global memory', xy=(n_elements[0]-0.5,
-            speedup1_global[0]+0.85),  xycoords='data', fontsize=7)
-    ax1_speedup.annotate('GPU shared memory', xy=(n_elements[1]+0.1,
-            speedup1_shared[1]+0.65),  xycoords='data', fontsize=7)
     for tick in ax1.xaxis.get_major_ticks():
         tick.label.set_fontsize(9)
     for tick in ax1.yaxis.get_major_ticks():
@@ -519,8 +528,12 @@ if __name__ == '__main__':
                 d_timings.append(e_timings)
             timings.append(d_timings)
         if args.outdir is not None:
+            if args.device_data:
+                name = "Speedup_test_device_data"
+            else:
+                name = "Speedup_test"
             plot_timings(timings, tests, amount_of_elements, amount_of_bins,
-                    args.outdir, "Speedup_test")
+                    args.outdir, name, args.device_data)
         sys.exit()
 
     if args.full:
