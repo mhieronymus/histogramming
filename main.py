@@ -68,7 +68,6 @@ def create_weights(n_elements, n_dimensions):
 def create_edges(n_bins, n_dimensions, scattered):
     """Create some random edges given the number of bins for each dimension"""
     edges = []
-    # Create some nice edges
     if scattered:
         for d in range(0, n_dimensions):
             tmp_bins = rnd.randint(n_bins/2, 3*n_bins/2)
@@ -76,12 +75,15 @@ def create_edges(n_bins, n_dimensions, scattered):
             end_bin = 360.0 + bin_width/10
             edges_d =  np.arange(-360.0, end_bin, bin_width, dtype=FTYPE)
             edges.append(edges_d)
+        # Irregular dimensions cannot be casted to arrays.
+        return edges
     else:
         for d in range(0, n_dimensions):
             bin_width =720.0/n_bins
             end_bin = 360.0 + bin_width/10
             edges_d =  np.arange(-360.0, end_bin, bin_width, dtype=FTYPE)
             edges.append(edges_d)
+    # return edges
     return np.asarray(edges, dtype=FTYPE)
 
 
@@ -109,6 +111,9 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
     # print np.sum(histogram)
     # print histogram
     # print "With edges:"
+    # print "shape: ", np.shape(edges)
+    # for row in edges:
+    #     print "[%s]" % (' '.join('%020.16f' % i for i in row))
     # print edges
     # print np.shape(edges)
     # print np.shape(histogram)
@@ -418,8 +423,7 @@ if __name__ == '__main__':
     input_data, d_input_data = create_array(args.data, args.dimension,
             args.device_data)
     len_input = args.data * args.dimension
-    # print "input_data:\n", n_events=input_data
-    # print np.shape(input_data)
+
     edges = None
     if args.use_given_edges:
         edges = create_edges(args.bins, args.dimension, args.use_irregular_edges)

@@ -98,7 +98,8 @@ __global__ void max_min_reduce(const fType *d_array, const iType n_elements,
         // If there are more elements than threads, then we copy the next
         // elements from input if they are bigger/lower than the last copied
         // values.
-        while(gid < n_elements && gid >= n_elements)
+        // while(gid < n_elements && gid >= n_elements)
+        while(gid < n_elements)
         {
             shared_max[tid] = max(shared_max[tid],
                 d_array[gid*no_of_dimensions+d]);
@@ -108,17 +109,29 @@ __global__ void max_min_reduce(const fType *d_array, const iType n_elements,
         }
         __syncthreads();
         gid = blockIdx.x * blockDim.x + threadIdx.x;
+        // if(gid < n_elements)
+        //     printf("Before block reduction: Thread %%d found max %%f and min %%f with d: %%d Also n_elements: %%d\n",
+        //      gid, shared_max[tid], shared_min[tid], d, n_elements);
+        // The following reduction works only with n_elements being a multiple of 2
+        // Otherwise the pivot element (at n_elements/2) won't be used.
+        // Therefore we just start with this element and [0]
+        // if(n_elements%%2 != 0 && tid == 0)
+        // {
+        //     printf("Blubb Thread %%d min/max to %%d from %%d at BlockDim %%d and i: %%d atd: %%d\n", gid, tid, tid+n_elements/2,blockDim.x, n_elements/2, d);
+        //     shared_max[tid] = max(shared_max[tid], shared_max[tid + n_elements/2]);
+        //     shared_min[tid] = min(shared_min[tid], shared_min[tid + n_elements/2]);
+        // }
 
         // Blockwise reduction
         for(int i=blockDim.x/2; i > 0; i >>= 1)
         {
             // First check: For reduce algorithm
-            // Second check: Do not access memory outside of our input elements
-            // Third check: If there are less elements than threads in one block
+            // Second check: If there are less elements than threads in one block
             // do not access out of bounds. Only for "last block" and
             // n_elements/blockDim.x != 0
-            if(tid < i && gid < n_elements && gid + i < n_elements)
+            if(tid < i && gid + i < n_elements)
             {
+                // printf("Thread %%d min/max to %%d from %%d at BlockDim %%d and i: %%d atd: %%d\n", gid, tid, tid+i,blockDim.x, i, d);
                 shared_max[tid] = max(shared_max[tid], shared_max[tid + i]);
                 shared_min[tid] = min(shared_min[tid], shared_min[tid + i]);
             }
@@ -127,6 +140,7 @@ __global__ void max_min_reduce(const fType *d_array, const iType n_elements,
         // Now return max value of all blocks in global memory
         if(tid == 0 && gid < n_elements)
         {
+            // printf("Thread %%d found max %%f and min %%f with d: %%d\n", gid, shared_max[0], shared_min[0], d);
             atomicMaxfType(&d_max[d], shared_max[0]);
             atomicMinfType(&d_min[d], shared_min[0]);
         }
@@ -190,11 +204,12 @@ __global__ void histogram_gmem_atomics_with_edges(const fType *in,
     unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
     unsigned int tid = threadIdx.x;
     unsigned int total_threads = blockDim.x * gridDim.x;
+    unsigned int threads_per_block = blockDim.x;
 
     // initialize temporary histogram for each block in global memory
     uiType *gmem = out + no_of_flat_bins * blockIdx.x;
     // Each thread writes zeros to global memory
-    for(unsigned int i = tid; i <no_of_flat_bins; i += blockDim.x)
+    for(unsigned int i = tid; i < no_of_flat_bins; i += threads_per_block)
     {
         gmem[i] = 0;
     }
@@ -202,16 +217,17 @@ __global__ void histogram_gmem_atomics_with_edges(const fType *in,
 
     // Process input data by updating the histogram of each block in global
     // memory.
-    for(unsigned int i = gid * no_of_dimensions; i < length;
-            i += no_of_dimensions * total_threads)
+    for(unsigned int i = gid*no_of_dimensions; i < length;
+            i += no_of_dimensions*total_threads)
     {
         int current_bin = 0;
+        int bins_offset = 0;
         for(unsigned int d = 0; d < no_of_dimensions; d++)
         {
             fType val = in[i + d];
             int tmp_bin = 0;
-            while(val > edges_in[(no_of_bins[d]+1)*d+tmp_bin+1]
-                    && tmp_bin < no_of_bins[d])
+            while(val > edges_in[bins_offset+tmp_bin+1]
+                && tmp_bin < no_of_bins[d])
             {
                  tmp_bin++;
             }
@@ -221,6 +237,7 @@ __global__ void histogram_gmem_atomics_with_edges(const fType *in,
                 power_bins = no_of_bins[k] * power_bins;
             }
             current_bin += tmp_bin * power_bins;
+            bins_offset += no_of_bins[d]+1;
         }
         __syncthreads();
         // Avoid illegal memory access
@@ -298,7 +315,7 @@ __global__ void histogram_smem_atomics_with_edges(const fType *in,
 
     // initialize temporary accumulation array in shared memory
     extern __shared__ uiType smem[];
-    for(unsigned int i = tid; i < no_of_flat_bins;  i+= threads_per_block)
+    for(unsigned int i = tid; i < no_of_flat_bins;  i += threads_per_block)
     {
         smem[i] = 0;
     }
@@ -308,14 +325,16 @@ __global__ void histogram_smem_atomics_with_edges(const fType *in,
     // memory. Each thread processes one element with all its dimensions at a
     // time.
     for(unsigned int i = gid*no_of_dimensions; i < length;
-        i+=no_of_dimensions*total_threads)
+        i += no_of_dimensions*total_threads)
     {
         int current_bin = 0;
+        int bins_offset = 0;
         for(unsigned int d = 0; d < no_of_dimensions; d++)
         {
             fType val = in[i + d];
             int tmp_bin = 0;
-            while(val > edges_in[(no_of_bins[d]+1)*d+tmp_bin+1] && tmp_bin < no_of_bins[d])
+            while(val > edges_in[bins_offset+tmp_bin+1]
+                    && tmp_bin < no_of_bins[d])
             {
                 tmp_bin++;
             }
@@ -325,6 +344,7 @@ __global__ void histogram_smem_atomics_with_edges(const fType *in,
                 power_bins = no_of_bins[k] * power_bins;
             }
             current_bin += tmp_bin * power_bins;
+            bins_offset += no_of_bins[d]+1;
         }
         __syncthreads();
         // Avoid illegal memory access
