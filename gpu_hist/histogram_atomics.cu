@@ -239,7 +239,6 @@ __global__ void histogram_gmem_atomics_with_edges(const fType *in,
             current_bin += tmp_bin * power_bins;
             bins_offset += no_of_bins[d]+1;
         }
-        __syncthreads();
         // Avoid illegal memory access
         if(current_bin < no_of_flat_bins)
         {
@@ -346,7 +345,6 @@ __global__ void histogram_smem_atomics_with_edges(const fType *in,
             current_bin += tmp_bin * power_bins;
             bins_offset += no_of_bins[d]+1;
         }
-        __syncthreads();
         // Avoid illegal memory access
         if(current_bin < no_of_flat_bins)
         {
