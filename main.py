@@ -333,6 +333,7 @@ def create_subfig(seq_time1, running_time1_global, running_time1_shared,
     ax1.set_xscale('log')
     ax1.set_yscale('log')
     ax1_speedup = ax1.twinx()
+    ax1_speedup.set_yscale('log')
     speedup1_global = []
     for i in range(0, len(running_time1_global)):
         speedup1_global.append(seq_time1[i]/running_time1_global[i])
