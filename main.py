@@ -311,6 +311,7 @@ def create_subfig(seq_time1, running_time1_global, running_time1_shared,
     ax1.set_xscale('log')
     ax1.set_yscale('log')
     ax1_speedup = ax1.twinx()
+    ax1_speedup.set_yscale('log')
     speedup1_global = []
     for i in range(0, len(running_time1_global)):
         speedup1_global.append(seq_time1[i]/running_time1_global[i])
@@ -579,8 +580,6 @@ if __name__ == '__main__':
         sys.exit()
 
     if args.full:
-        print("Starting full histogramming")
-
         # First with double precision
         with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
             histogram_d_gpu_shared, edges_d_gpu_shared = histogrammer.get_hist(
@@ -631,7 +630,6 @@ if __name__ == '__main__':
                     "CPU, single", args.bins)
         sys.exit()
     if args.GPU_both:
-        print("Starting histogramming on GPU only")
         # if not args.all_precisions and args.single_precision then this is
         # single precision. Hence the missing "d" or "s" in the name.
         with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
@@ -678,7 +676,6 @@ if __name__ == '__main__':
                     "GPU global memory, " + name, args.bins)
 
     if args.GPU_shared and not args.GPU_both:
-        print("Starting histogramming on GPU with shared memory")
         with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
             histogram_gpu_shared, edges_gpu_shared = histogrammer.get_hist(
                                 bins=edges, n_events=d_input_data, shared=True,
@@ -708,7 +705,6 @@ if __name__ == '__main__':
                     "GPU shared memory, " + name, args.bins)
 
     if args.GPU_global and not args.GPU_both:
-        print("Starting histogramming on GPU with global memory")
         with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
             histogram_gpu_global, edges_gpu_global = histogrammer.get_hist(
                                 bins=edges, n_events=d_input_data, shared=False,
