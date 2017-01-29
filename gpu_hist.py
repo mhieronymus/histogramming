@@ -7,6 +7,7 @@ import numpy as np
 from pycuda.compiler import SourceModule
 import pycuda.driver as cuda
 import pycuda.autoinit
+import sys
 
 # from pisa import FTYPE, C_FTYPE, C_PRECISION_DEF # Used in PISA
 
@@ -50,8 +51,9 @@ class GPUHist(object):
         )
         include_dirs = ['/gpu_hist']
         # keep for compiler output, no_extern_c: allow name manling
+        # Add -g for debug mode
         module = SourceModule(kernel_code, keep=True,
-                options=['--compiler-options','-Wall', '-g'],
+                options=['--compiler-options','-Wall'],
                 include_dirs=include_dirs, no_extern_c=False)
         #module = SourceModule(kernel_code, include_dirs=include_dirs, keep=True)
         self.max_min_reduce = module.get_function("max_min_reduce")
@@ -127,26 +129,48 @@ class GPUHist(object):
         d_edges_in = None
         d_max_in = None
         d_min_in = None
+        flattened = False
         # Check if number of bins for all dimensions is given or
         # if number of bins for each dimension is given or
         # if the edges for each dimension are given
         if type(bins) is int:
-            no_of_bins = self.ITYPE(bins)
-            self.n_flat_bins = self.ITYPE(no_of_bins ** no_of_dimensions)
+            # Use equally spaced bins in all dimensions
+            self.n_flat_bins = self.ITYPE(self.ITYPE(bins) ** no_of_dimensions)
+            no_of_bins = []
+            for i in range(0, no_of_dimensions):
+                no_of_bins.append(self.ITYPE(bins))
+            no_of_bins = np.asarray(no_of_bins)
+            d_no_of_bins = cuda.mem_alloc(no_of_bins.nbytes)
+            cuda.memcpy_htod(d_no_of_bins, no_of_bins)
         elif type(bins[0]) is not list and type(bins[0]) is not np.ndarray:
+            # Use different amoints of bins in each dimension
             self.n_flat_bins = 1
+            no_of_bins = []
             for i in range(len(bins)):
-                self.n_flat_bins = self.n_flat_bins * bins[0]
-            bins_per_dimension = bins
+                self.n_flat_bins = self.n_flat_bins * bins[i]
+                no_of_bins.append(self.ITYPE(bins[i]))
+            no_of_bins = np.asarray(no_of_bins)
+            d_no_of_bins = cuda.mem_alloc(no_of_bins.nbytes)
+            cuda.memcpy_htod(d_no_of_bins, no_of_bins)
         else:
+            # Use given edges
             self.n_flat_bins= 1
+            no_of_bins = []
             for i in range(len(bins)):
                 self.n_flat_bins = self.n_flat_bins * (len(bins[i]) - 1)
+                no_of_bins.append(self.ITYPE(len(bins[i])-1))
+            no_of_bins = np.asarray(no_of_bins)
+            d_no_of_bins = cuda.mem_alloc(no_of_bins.nbytes)
+            cuda.memcpy_htod(d_no_of_bins, no_of_bins)
             self.n_flat_bins = self.ITYPE(self.n_flat_bins)
-            no_of_bins = self.ITYPE(len(bins[0])-1)
-            edges = bins
-            n_edges = sum(sum(1 for i in b if i) for b in bins)
-
+            if(isinstance(bins, list)):
+                # Different amount of bins for each dimension. Therefore flatten
+                # the list before casting to array
+                edges = np.asarray([item for sublist in bins for item in sublist])
+                flattened = True
+            else:
+                edges = bins
+            n_edges = sum(sum(1 for i in b) for b in bins)
         # We use a one-dimensional block and grid.
         # We use as many threads per block as possible but we are limited
         # to the shared memory.
@@ -158,10 +182,6 @@ class GPUHist(object):
         else:
             overflow = no_of_threads%no_of_dimensions
             self.block_dim = (no_of_threads-overflow, 1, 1)
-        # debug
-        # overflow = 4%no_of_dimensions
-        # self.block_dim = (4-overflow, 1, 1)
-
         self.hist = np.zeros(self.n_flat_bins, dtype=self.HIST_TYPE)
         self.d_hist = cuda.mem_alloc(self.n_flat_bins
                 * np.dtype(self.HIST_TYPE).itemsize)
@@ -204,7 +224,7 @@ class GPUHist(object):
                 self.hist_smem(d_events,
                         self.HIST_TYPE(len_n_events*no_of_dimensions),
                         self.HIST_TYPE(no_of_dimensions),
-                        self.HIST_TYPE(no_of_bins),
+                        d_no_of_bins,
                         self.HIST_TYPE(self.n_flat_bins), d_tmp_hist,
                         d_max_in, d_min_in,
                         block=self.block_dim, grid=self.grid_dim,
@@ -217,19 +237,11 @@ class GPUHist(object):
                 self.hist_smem_given_edges(d_events,
                         self.HIST_TYPE(len_n_events*no_of_dimensions),
                         self.HIST_TYPE(no_of_dimensions),
-                        self.HIST_TYPE(no_of_bins),
+                        d_no_of_bins,
                         self.HIST_TYPE(self.n_flat_bins),
                         d_tmp_hist, d_edges_in,
                         block=self.block_dim, grid=self.grid_dim,
                         shared=self.shared)
-                # # Debug
-                # tmp_hist = np.zeros(self.n_flat_bins * self.grid_dim[0], dtype=self.HIST_TYPE)
-                # cuda.memcpy_dtoh(tmp_hist, d_tmp_hist)
-                # tmp_hist = np.reshape(tmp_hist, (self.grid_dim[0], no_of_bins, no_of_bins))
-                # print np.sum(tmp_hist)
-                # print "tmp_hist:\n", tmp_hist
-            else:
-                print "Different amount of bins per dimension is not implemented"
         else:
             # Calculate edges by yourself if no edges are given
             if edges is None and bins_per_dimension is None:
@@ -245,16 +257,10 @@ class GPUHist(object):
                 self.hist_gmem(d_events,
                         self.HIST_TYPE(len_n_events*no_of_dimensions),
                         self.HIST_TYPE(no_of_dimensions),
-                        self.HIST_TYPE(no_of_bins),
+                        d_no_of_bins,
                         self.HIST_TYPE(self.n_flat_bins), d_tmp_hist,
                         d_max_in, d_min_in,
                         block=self.block_dim, grid=self.grid_dim)
-                # Debug
-                # tmp_hist = np.zeros(self.n_flat_bins * self.grid_dim[0], dtype=self.HIST_TYPE)
-                # cuda.memcpy_dtoh(tmp_hist, self.d_tmp_hist)
-                # tmp_hist = np.reshape(tmp_hist, (self.grid_dim[0], no_of_bins, no_of_bins))
-                # print np.sum(tmp_hist)
-                # print "tmp_hist:\n", tmp_hist
             elif bins_per_dimension is None:
                 d_edges_in = cuda.mem_alloc(n_edges
                         * np.dtype(self.FTYPE).itemsize)
@@ -262,21 +268,18 @@ class GPUHist(object):
                 self.hist_gmem_given_edges(d_events,
                         self.HIST_TYPE(len_n_events*no_of_dimensions),
                         self.HIST_TYPE(no_of_dimensions),
-                        self.HIST_TYPE(no_of_bins),
+                        d_no_of_bins,
                         self.HIST_TYPE(self.n_flat_bins),
                         d_tmp_hist, d_edges_in,
                         block=self.block_dim, grid=self.grid_dim)
-            else:
-                print "Different amount of bins per dimension is not implemented"
         self.hist_accum(d_tmp_hist, self.ITYPE(self.grid_dim[0]), self.d_hist,
-                self.HIST_TYPE(no_of_bins), self.HIST_TYPE(self.n_flat_bins),
-                self.HIST_TYPE(no_of_dimensions),
+                self.HIST_TYPE(self.n_flat_bins),
                 block=self.block_dim, grid=self.grid_dim)
         # Copy the array back and make the right shape
         cuda.memcpy_dtoh(self.hist, self.d_hist)
         histo_shape = ()
         for d in range(0, no_of_dimensions):
-            histo_shape += (no_of_bins, )
+            histo_shape += (no_of_bins[d], )
         self.hist = np.reshape(self.hist, histo_shape)
 
         if edges is None and bins_per_dimension is None:
@@ -288,12 +291,9 @@ class GPUHist(object):
             edges = []
             # Create some nice edges
             for d in range(0, no_of_dimensions):
-                bin_width = (max_in[d]-min_in[d])/no_of_bins
+                bin_width = (max_in[d]-min_in[d])/no_of_bins[d]
                 edges_d =  np.arange(min_in[d], max_in[d]+1, bin_width, dtype=self.FTYPE)
                 edges.append(edges_d)
-        elif edges is None:
-            print "Different amount of bins per dimension is not implemented"
-
         self.d_hist.free()
         d_tmp_hist.free()
         if type(n_events) != cuda.DeviceAllocation:
@@ -304,6 +304,9 @@ class GPUHist(object):
             d_max_in.free()
         if d_min_in is not None:
             d_min_in.free()
+        # Check if edges had to be flattened before:
+        if flattened:
+            edges = bins
         return self.hist, edges
 
 

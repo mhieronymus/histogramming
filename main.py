@@ -66,15 +66,25 @@ def create_weights(n_elements, n_dimensions):
     return np.random.random((n_dimensions, n_elements))
 
 
-def create_edges(n_bins, n_dimensions):
+def create_edges(n_bins, n_dimensions, scattered):
     """Create some random edges given the number of bins for each dimension"""
     edges = []
-    # Create some nice edges
-    for d in range(0, n_dimensions):
-        bin_width =720.0/n_bins
-        end_bin = 360.0 + bin_width/10
-        edges_d =  np.arange(-360.0, end_bin, bin_width, dtype=FTYPE)
-        edges.append(edges_d)
+    if scattered:
+        for d in range(0, n_dimensions):
+            tmp_bins = rnd.randint(n_bins/2, 3*n_bins/2)
+            bin_width =720.0/tmp_bins
+            end_bin = 360.0 + bin_width/10
+            edges_d =  np.arange(-360.0, end_bin, bin_width, dtype=FTYPE)
+            edges.append(edges_d)
+        # Irregular dimensions cannot be casted to arrays.
+        return edges
+    else:
+        for d in range(0, n_dimensions):
+            bin_width =720.0/n_bins
+            end_bin = 360.0 + bin_width/10
+            edges_d =  np.arange(-360.0, end_bin, bin_width, dtype=FTYPE)
+            edges.append(edges_d)
+    # return edges
     return np.asarray(edges, dtype=FTYPE)
 
 
@@ -102,6 +112,9 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
     # print np.sum(histogram)
     # print histogram
     # print "With edges:"
+    # print "shape: ", np.shape(edges)
+    # for row in edges:
+    #     print "[%s]" % (' '.join('%020.16f' % i for i in row))
     # print edges
     # print np.shape(edges)
     # print np.shape(histogram)
@@ -125,7 +138,7 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
         fig.savefig(outdir+"/"+name)
     elif(len(np.shape(histogram)) == 2):
         X, Y = np.meshgrid(edges[0], edges[1])
-        plt.pcolormesh(X, Y, histogram, cmap='rainbow')
+        plt.pcolormesh(X, Y, np.swapaxes(histogram,0,1), cmap='rainbow')
         cbar = plt.colorbar(orientation='vertical')
         cbar.ax.tick_params(labelsize=9)
         ax.set_xticks(edges[0])
@@ -141,13 +154,21 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
         fig.savefig(outdir+"/"+name)
     elif(len(np.shape(histogram)) == 3):
         fig = plt.figure()
-        for i in range(0, np.shape(histogram)[0]):
-            subplot = len(edges[0])/2*100 + 20 + i + 1
-            ax = fig.add_subplot(subplot)
+        n_histograms = (len(edges[2])-1)/2
+        if (len(edges[2])-1)%2 != 0:
+            n_histograms = n_histograms+1
+        # histogram[x][y][z] -> [z][y][x]
+        histogram = np.swapaxes(histogram, 0, 2)
+        for i in range(0, len(histogram)):
+            title = ('z: ' + '{:06.2f}'.format(edges[2][i]) + " to "
+                    + '{:06.2f}'.format(edges[2][i+1]))
+            ax = fig.add_subplot(n_histograms, 2, i+1)
+            ax.set_title(title, fontsize=9)
             ax.grid(b=True, which='major')
             ax.grid(b=True, which='minor', linestyle=':')
             X, Y = np.meshgrid(edges[0], edges[1])
-            plt.pcolormesh(X, Y, histogram[i], cmap='rainbow')
+            tmp_histogram = histogram[i][:][:]
+            plt.pcolormesh(X, Y, tmp_histogram, cmap='rainbow')
             cbar = plt.colorbar(orientation='vertical')
             cbar.ax.tick_params(labelsize=9)
             ax.set_xticks(edges[0])
@@ -160,6 +181,7 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
                 tick.label.set_fontsize(9)
             # set the limits of the image
             plt.axis([X[0][0], X[0][len(X[0])-1], Y[0][0], Y[len(Y)-1][len(Y[len(Y)-1])-1]])
+        fig.tight_layout()
         fig.savefig(outdir+"/"+name)
 
     else:
@@ -418,6 +440,11 @@ if __name__ == '__main__':
             help=
             '''Use calculated edges instead of calculating edges during
             histogramming.''')
+    parser.add_argument('--use_irregular_edges', action='store_true',
+            help=
+            '''The number of edges varies with number of bins/2 for each
+            dimension.
+            The mean should be at least 6 bins for each dimension.''')
     parser.add_argument('--outdir', metavar='DIR', type=str,
             help=
             '''Store all output plots to this directory. If
@@ -439,12 +466,17 @@ if __name__ == '__main__':
     input_data, d_input_data = create_array(args.data, args.dimension,
             args.device_data)
     len_input = args.data * args.dimension
-    # print "input_data:\n", n_events=input_data
-    # print np.shape(input_data)
+
     edges = None
     if args.use_given_edges:
-        edges = create_edges(args.bins, args.dimension)
-    if edges is None:
+        edges = create_edges(args.bins, args.dimension, args.use_irregular_edges)
+    if edges is None and args.use_irregular_edges:
+        if args.bins < 6:
+            args.bins = 6
+        edges = []
+        for i in range(0, args.dimension):
+            edges.append(rnd.randint(args.bins/2, 3*args.bins/2))
+    elif edges is None:
         edges = args.bins
 
     if args.test:
@@ -579,8 +611,6 @@ if __name__ == '__main__':
         sys.exit()
 
     if args.full:
-        print("Starting full histogramming")
-
         # First with double precision
         with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
             histogram_d_gpu_shared, edges_d_gpu_shared = histogrammer.get_hist(
@@ -631,7 +661,6 @@ if __name__ == '__main__':
                     "CPU, single", args.bins)
         sys.exit()
     if args.GPU_both:
-        print("Starting histogramming on GPU only")
         # if not args.all_precisions and args.single_precision then this is
         # single precision. Hence the missing "d" or "s" in the name.
         with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
@@ -678,7 +707,6 @@ if __name__ == '__main__':
                     "GPU global memory, " + name, args.bins)
 
     if args.GPU_shared and not args.GPU_both:
-        print("Starting histogramming on GPU with shared memory")
         with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
             histogram_gpu_shared, edges_gpu_shared = histogrammer.get_hist(
                                 bins=edges, n_events=d_input_data, shared=True,
@@ -708,7 +736,6 @@ if __name__ == '__main__':
                     "GPU shared memory, " + name, args.bins)
 
     if args.GPU_global and not args.GPU_both:
-        print("Starting histogramming on GPU with global memory")
         with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
             histogram_gpu_global, edges_gpu_global = histogrammer.get_hist(
                                 bins=edges, n_events=d_input_data, shared=False,
