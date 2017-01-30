@@ -98,7 +98,6 @@ __global__ void max_min_reduce(const fType *d_array, const iType n_elements,
         // If there are more elements than threads, then we copy the next
         // elements from input if they are bigger/lower than the last copied
         // values.
-        // while(gid < n_elements && gid >= n_elements)
         while(gid < n_elements)
         {
             shared_max[tid] = max(shared_max[tid],
@@ -109,18 +108,6 @@ __global__ void max_min_reduce(const fType *d_array, const iType n_elements,
         }
         __syncthreads();
         gid = blockIdx.x * blockDim.x + threadIdx.x;
-        // if(gid < n_elements)
-        //     printf("Before block reduction: Thread %%d found max %%f and min %%f with d: %%d Also n_elements: %%d\n",
-        //      gid, shared_max[tid], shared_min[tid], d, n_elements);
-        // The following reduction works only with n_elements being a multiple of 2
-        // Otherwise the pivot element (at n_elements/2) won't be used.
-        // Therefore we just start with this element and [0]
-        // if(n_elements%%2 != 0 && tid == 0)
-        // {
-        //     printf("Blubb Thread %%d min/max to %%d from %%d at BlockDim %%d and i: %%d atd: %%d\n", gid, tid, tid+n_elements/2,blockDim.x, n_elements/2, d);
-        //     shared_max[tid] = max(shared_max[tid], shared_max[tid + n_elements/2]);
-        //     shared_min[tid] = min(shared_min[tid], shared_min[tid + n_elements/2]);
-        // }
 
         // Blockwise reduction
         for(int i=blockDim.x/2; i > 0; i >>= 1)
@@ -131,7 +118,6 @@ __global__ void max_min_reduce(const fType *d_array, const iType n_elements,
             // n_elements/blockDim.x != 0
             if(tid < i && gid + i < n_elements)
             {
-                // printf("Thread %%d min/max to %%d from %%d at BlockDim %%d and i: %%d atd: %%d\n", gid, tid, tid+i,blockDim.x, i, d);
                 shared_max[tid] = max(shared_max[tid], shared_max[tid + i]);
                 shared_min[tid] = min(shared_min[tid], shared_min[tid + i]);
             }
@@ -140,7 +126,6 @@ __global__ void max_min_reduce(const fType *d_array, const iType n_elements,
         // Now return max value of all blocks in global memory
         if(tid == 0 && gid < n_elements)
         {
-            // printf("Thread %%d found max %%f and min %%f with d: %%d\n", gid, shared_max[0], shared_min[0], d);
             atomicMaxfType(&d_max[d], shared_max[0]);
             atomicMinfType(&d_min[d], shared_min[0]);
         }
@@ -258,7 +243,6 @@ __global__ void histogram_smem_atomics(const fType *in,  const iType length,
 
     // initialize temporary accumulation array in shared memory
     extern __shared__ uiType smem[];
-    // __shared__ uiType smem[no_of_bins * no_of_dimensions]; <- this is the idea
     for(unsigned int i = tid; i < no_of_flat_bins;  i+= threads_per_block)
     {
         smem[i] = 0;

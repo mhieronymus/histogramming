@@ -14,81 +14,13 @@ All goals in detail:
  * Support single and double precision (requirement from PISA)
 
 ## Prerequisites
-PyCUDA, CUDA and psutils
+You are going to need to have the following requirements installed in order to use `gpu_hist.py`:
+ * [CUDA](https://developer.nvidia.com/cuda-zone) -- version > 5 recommended; on Ubuntu install via `nvidia-cuda-toolkit`
+ * [PyCUDA](https://developer.nvidia.com/pycuda) -- install via pip
+ * [NumPy](http://www.numpy.org/) -- install via pip
 
-## Usage
-Simply type `python main.py` and use some of the following options:
+If you would like to create benchmark tests with `main.py` or plot some histograms, you need:
+ * [matplotlib](http://matplotlib.org/) -- install via pip
+ * [psutils](https://pythonhosted.org/psutil/) install via pip
 
- * `--full`: Full test with comparison of numpy's histogramdd and GPU code
- with single and double precision and the GPU code with shared and global memory.
- * `--GPU_shared`: Use GPU code with shared memory. If --GPU_both is set, then
-  --GPU_shared will be ignored.
- * `--GPU_global`: Use GPU code with global memory. If --GPU_both is set, then
-  --GPU_global will be ignored.
- * `--GPU_both`: Use GPU code with shared memory and global memory and compare both.        
- * `--CPU`: Use numpy's histogramdd.        
- * `--all_precisions`: Run all specified tests with double and single precision.
- * `-s`, `--single_precision`: Use single precision. If it is not set, use double precision.
- If --all_precisions is used, then -s will be ignored.
- * `-d`, `--data`: Define the number of elements in each dimension for the input data.  
- * `--dimension`: Define the number of dimensions for the input data and the histogram.
- * `-b`, `--bins`: Choose the number of bins for each dimension    
- * `-w`, `--weights`: (Randomized) weights will be used on the histogram.  
- * `--use_given_edges`: Use calculated edges instead of calculating edges during histogramming.
- * `--outdir`: Store all output plots to this directory. If they don't exist,
- the script will make them, including all subdirectories.
- If none is supplied no plots will be saved.
-
-## Input
-Currently some arbitrary values between -360 and 360 are generated.
-
-## Output
-Currently only a small comparison between numpy's implementation and the GPU
-version are shown (if `--outdir` is set and both tests are used).
-
-## Histogramming
-Before a thread reads a value it is not known in which bin it belongs which can
-cause collisions with other threads. Therefore atomic operations must be used
-to construct a histogram. Those operations are fast since Kepler and
-shared memory atomics are fast since Maxwell.
-
-The implementation provided by NVIDIA uses a two-phase parallel histogram
-algorithm where local histograms are computed using atomics in phase 1 and
-then merged in phase 2 (each phase gets one kernel).
-
-### Phase 1
-Each CUDA thread block processes a region of the input data which reduces
-conflicts if many values belong to one bin. NVIDIA provides two implementations
-for phase 1:
-#### Use global memory
-This implementation stores per-block local histograms in global memory.
-One should use this approach if shared memory atomics are slow (e.g. GPUs
-older than Maxwell). In this case the cost for shared memory atomics is much
-higher than the cost for using global memory.
-
-#### Use shared memory
-This implementation stores per-block local histograms in shared memory.
-Using global memory is slow but histogramming needs lots of shared memory
-atomics so this should only be used for efficient GPUs (Maxwell and newer).
-In the end of this kernel all local histograms are copied to global memory once.
-
-### Phase 2
-All histograms are merged together. This kernel is independent from the chosen
-kernel of phase 1 since all local histograms are in global memory.
-
-### Using N-dimensional input data
-The implementation by NVIDIA is shown on 2D-data but it can be extended to N
-dimensions easily.
-
-## Results
-NVIDIA's implementation shows good results with high entropy (e.g. perfect
-distribution of the data and only a few atomic conflicts) with shared memory
-and a GTX Titan (Kepler architecture). In all other cases (and in all cases
-with a GTX Titan X) the kernel with shared memory performs better.
-
-## Future Improvements
-Using RLE encoding for the bin identifiers. For large multidimensional
-histograms: Represent them as a linear histogram and use a multi-pass approach
-similar to radix sort for highly conflict-laden party
-(if they don't fit into shared memory).
-With a high entropy in input data one can just use global memory.
+For further information please visit the [Wiki](https://github.com/PolygonAndPixel/histogramming/wiki)
