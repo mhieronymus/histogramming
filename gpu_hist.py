@@ -24,7 +24,7 @@ class GPUHist(object):
     ftype : np.float64 or np.float32
     """
 
-    def __init__(self, ftype=FTYPE4):
+    def __init__(self, ftype=FTYPE):
         t0 = time.time()
 
         self.FTYPE = ftype
@@ -34,11 +34,11 @@ class GPUHist(object):
         self.C_HIST_TYPE = 'unsigned int'
 
         # Set some default types.
-        if FTYPE == np.float32:
+        if ftype == np.float32:
             self.C_FTYPE = 'float'
             self.C_PRECISION_DEF = 'SINGLE_PRECISION'
             self.C_CHANGETYPE = 'int'
-        lif ftype == np.float64:
+        elif ftype == np.float64:
             self.C_FTYPE = 'double'
             self.C_PRECISION_DEF = 'DOUBLE_PRECISION'
             self.C_CHANGETYPE = 'unsigned long long int'
@@ -165,7 +165,7 @@ class GPUHist(object):
             no_of_bins = np.asarray(no_of_bins)
             d_no_of_bins = cuda.mem_alloc(no_of_bins.nbytes)
             cuda.memcpy_htod(d_no_of_bins, no_of_bins)
-        elif !isinstance(bins[0], list) and !isinstance(bins[0], np.ndarray):
+        elif not isinstance(bins[0], list) and not isinstance(bins[0], np.ndarray):
             # Use different amoints of bins in each dimension
             self.n_flat_bins = 1
             no_of_bins = []

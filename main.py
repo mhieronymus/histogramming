@@ -522,7 +522,7 @@ if __name__ == '__main__':
         available_memory = mem.available
         power_elements = 0
         while available_memory > (10**power_elements)*24:
-            power_elements++;
+            power_elements += 1;
         all_elelements = np.logspace(4, power_elements, power_elements-3)
         all_bins = np.logspace(1, 4, 4)
         all_ftypes = [np.float32, np.float64]
@@ -615,8 +615,8 @@ if __name__ == '__main__':
         if args.outdir is not None:
             df.to_csv(os.path.join(args.outdir, name + '.csv'))
             # TODO: make this compatible with Pandas DataFrame timings
-            plot_timings(timings, tests, amount_of_elements, amount_of_bins,
-                    args.outdir, name, args.device_data, max_elements_idx)
+            # plot_timings(timings, tests, amount_of_elements, amount_of_bins,
+            #         args.outdir, name, args.device_data, max_elements_idx)
         sys.exit()
 
     if args.full:
