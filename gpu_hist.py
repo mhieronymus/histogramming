@@ -102,7 +102,7 @@ class GPUHist(object):
         # print "Number of multiprocessors: ", self.mp
         # print "Available global memory: ", self.memory/(1024*1024), " Mbytes"
         # print "################################################################"
-        elf.init_time = time.time() - t0
+        self.init_time = time.time() - t0
 
 
     def clear(self):
@@ -124,6 +124,7 @@ class GPUHist(object):
         -------
 
         """
+        t0 = time.time()
 
         if isinstance(sample, cuda.DeviceAllocation):
             if number_of_events > 0:
@@ -240,7 +241,14 @@ class GPUHist(object):
                 * sizeof_hist_t
             )
         except pycuda._driver.MemoryError:
-            print self.n_flat_bins, self.grid_dim[0], sizeof_hist_t
+            print ("Trying to allocate ",
+                self.n_flat_bins * self.grid_dim[0] * sizeof_hist_t/(1024*1024),
+                " Mbytes of memory. Only ", self.memory/(1024*1024),
+                " Mbytes available.",
+                " self.n_flat_bins: ", self.n_flat_bins,
+                " self.grid_dim[0]: ", self.grid_dim[0],
+                " sizeof_hist_t: ", sizeof_hist_t, "\n"
+            )
             raise
 
         if shared:
@@ -265,7 +273,7 @@ class GPUHist(object):
                         shared=self.shared)
             elif bins_per_dimension is None:
                 self.shared = (self.n_flat_bins * sizeof_hist_t)
-                d_edges_in = cuda.mem_alloc(n_edges * sizeof_float_t)
+                d_edges_in = cuda.mem_alloc(edges.nbytes)
                 cuda.memcpy_htod(d_edges_in, edges)
                 self.hist_smem_given_edges(d_sample,
                         self.HIST_TYPE(n_events*n_dims),
@@ -293,7 +301,7 @@ class GPUHist(object):
                         d_max_in, d_min_in,
                         block=self.block_dim, grid=self.grid_dim)
             elif bins_per_dimension is None:
-                d_edges_in = cuda.mem_alloc(n_edges * sizeof_float_t)
+                d_edges_in = cuda.mem_alloc(edges.nbytes)
                 cuda.memcpy_htod(d_edges_in, edges)
                 self.hist_gmem_given_edges(d_sample,
                         self.HIST_TYPE(n_events*n_dims),
@@ -323,16 +331,20 @@ class GPUHist(object):
             # Create some nice edges
             for d in range(0, n_dims):
                 try:
-                    edges_d = np.linspace(min_in[d], max_in[d], no_of_bins+1, dtype=self.FTYPE)
+                    edges_d = np.linspace(min_in[d], max_in[d], no_of_bins[d]+1, dtype=self.FTYPE)
                 except ValueError:
-                    print min_in[d], max_in[d], no_of_bins, self.FTYPE
+                    print min_in[d], max_in[d], no_of_bins[d], self.FTYPE
                     raise
                 edges.append(edges_d)
 
         self.d_hist.free()
         d_tmp_hist.free()
-        if isinstance(sample, cuda.DeviceAllocation):
+        if not isinstance(sample, cuda.DeviceAllocation):
+            # TODO: Move freeing of d_samples to another method (do we actually
+            # want to free it?) Also: free samples: Freeing is only possible
+            # where it has been created.
             d_sample.free()
+
         if d_edges_in is not None:
             d_edges_in.free()
         if d_max_in is not None:

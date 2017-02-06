@@ -86,7 +86,7 @@ def create_edges(n_bins, n_dims, random=False, seed=0, ftype=FTYPE):
             tmp_bins = rnd.randint(n_bins/2, 3*n_bins/2)
             bin_width =720.0/tmp_bins
             end_bin = 360.0 + bin_width/10
-            edges_d =  np.arange(-360.0, end_bin, bin_width, dtype=FTYPE)
+            edges_d =  np.arange(-360.0, end_bin, bin_width, dtype=ftype)
             edges.append(edges_d)
         # Irregular dimensions cannot be casted to arrays.
         return edges
@@ -94,10 +94,10 @@ def create_edges(n_bins, n_dims, random=False, seed=0, ftype=FTYPE):
         for d in range(0, n_dims):
             bin_width =720.0/n_bins
             end_bin = 360.0 + bin_width/10
-            edges_d =  np.arange(-360.0, end_bin, bin_width, dtype=FTYPE)
+            edges_d =  np.arange(-360.0, end_bin, bin_width, dtype=ftype)
             edges.append(edges_d)
     # return edges
-    return np.asarray(edges, dtype=FTYPE)
+    return np.asarray(edges, dtype=ftype)
 
 
 def record_timing(method, info, timings):
@@ -212,8 +212,9 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
         print "Plots are only availale for 3 or less dimensions. Aborting"
 
 
-def plot_timings(timings, iterations, amount_of_elements, amount_of_bins,
-        outdir, name, used_device_data, max_elements_idx):
+# def plot_timings(timings, iterations, amount_of_elements, amount_of_bins,
+#         outdir, name, used_device_data, max_elements_idx):
+def plot_timings(df, outdir, name):
     """Print the timings from --test.
     timings have following order:
     timings [dimensions] 1 to 4
@@ -225,130 +226,133 @@ def plot_timings(timings, iterations, amount_of_elements, amount_of_bins,
     path = [outdir]
     mkdir(os.path.join(*path), warn=False)
     width = 1.0
-    # We start with single precision and subject to number of elements
-    # plots x-axis: n_elements, y_axis1: timings, y_axis2: speedup
-    for start in range(0, 2):
-        fig = plt.figure()
-        start = start*2
-        gs = gridspec.GridSpec(4, 2, width_ratios=[1,1],
-                height_ratios=[0.5, 40, 40, 0.1])
-        if used_device_data:
-            plot_title = ('Histogram: Speedup and runtime with CPU and GPU\n'
-                    'using already allocated device arrays')
-        else:
-            plot_title = 'Histogram: Speedup and runtime with CPU and GPU'
-        plt.suptitle(plot_title, fontsize=16)
-        for b in range(start, start+2):
-            # print "b: ", b
-            # print 2*(b-start)+2
-            ax1 = plt.subplot(gs[2*(b-start)+2])
-            # Get all the data
-            seq_time1 = []
-            running_time1_global = []
-            running_time1_shared = []
-            n_elements1 = []
-            for d in range(0, len(timings)):
-                for n in range(0, len(timings[d])):
-                    n_elements1.append((d+1)*amount_of_elements[n])
-                    seq_time1.append(timings[d][n][b][0][0])
-                    running_time1_global.append(timings[d][n][b][0][1])
-                    running_time1_shared.append(timings[d][n][b][0][2])
-            create_subfig(seq_time1, running_time1_global, running_time1_shared,
-                    np.asarray(n_elements1), ax1, width,
-                    'Number of elements',
-                    '(SP)', True, amount_of_bins[b])
-            # Next double precision
-            # plots x-axis: n_elements, y_axis1: timings, y_axis2: speedup
-            ax3 = plt.subplot(gs[2*(b-start)+3])
-            seq_time3 = []
-            running_time3_global = []
-            running_time3_shared = []
-            n_elements3 = []
-            for d in range(0, len(timings)):
-                for n in range(0, len(timings[d])):
-                    n_elements3.append((d+1)*amount_of_elements[n])
-                    seq_time3.append(timings[d][n][b][0][0])
-                    running_time3_global.append(timings[d][n][b][0][1])
-                    running_time3_shared.append(timings[d][n][b][0][2])
-            create_subfig(seq_time3, running_time3_global, running_time3_shared,
-                    np.asarray(n_elements3), ax3, width,
-                    'Number of elements',
-                    '(DP)', True, amount_of_bins[b])
-        # plt.tight_layout()
-        with warnings.catch_warnings():
-            # This raises warnings since tight layout cannot
-            # handle gridspec automatically. We are going to
-            # do that manually so we can filter the warning.
-            warnings.simplefilter("ignore", UserWarning)
-            gs.tight_layout(fig)
+    # TODO: Loop over n_dims, n_bins
+    n_dims = df['n_dims'].max()
+    min_dims = df['n_dims'].min()
+    n_bins = np.log10(df['n_bins'].max())
+    all_bins = np.logspace(1, n_bins, n_bins, dtype = int)
+    preallocated = [True, False]
+    given_edges = [True, False]
 
-        plt.savefig(outdir+"/elements_"+str(start/2)+"_"+name, dpi=600)
+    # Loop over: Preallocated memory or not
+    for p in preallocated:
+        # For each dimension
+        for d in xrange(min_dims, n_dims+1):
+            # Count how many rows of plots have been created
+            # For each bin_number
+            for b in all_bins:
+                # We start with single precision and subject to number of elements
+                # We compare the speed with given edges and without
+                fig = plt.figure()
+                gs = gridspec.GridSpec(4, 2, width_ratios=[1,1],
+                        height_ratios=[0.5, 40, 40, 0.1])
+                if p:
+                    plot_title = ('Histogram: Speedup and runtime with CPU and GPU\n'
+                            'using already allocated device arrays')
+                else:
+                    plot_title = 'Histogram: Speedup and runtime with CPU and GPU'
+                plt.suptitle(plot_title, fontsize=16)
 
-    # Next subject to number of bins
-    # plots x-axis: bins, y_axis1: timings, y_axis2: speedup
-    for start in range(0, 2):
-        fig = plt.figure()
-        start = start*max_elements_idx/2
-        height_ratios = [0.5]
-        for i in range(0, max_elements_idx/2):
-            height_ratios.append(40)
-        height_ratios.append(0.1)
-        gs = gridspec.GridSpec(max_elements_idx/2+2, 2, width_ratios=[1,1],
-                height_ratios=height_ratios)
-        if used_device_data:
-            plot_title = ('Histogram: Speedup and runtime with CPU and GPU\n'
-                    'using already allocated device arrays')
-        else:
-            plot_title = 'Histogram: Speedup and runtime with CPU and GPU'
-        plt.suptitle(plot_title, fontsize=16)
-        for e in range(start, start+max_elements_idx/2):
-            ax2 = plt.subplot(gs[2*(e-start)+2])
-            seq_time2 = []
-            running_time2_global = []
-            running_time2_shared = []
-            n_bins2 = []
-            for d in range(0, len(timings)):
-                for b in range(0, len(timings[d][n])):
-                    n_bins2.append(pow(amount_of_bins[b], (d+1)))
-                    seq_time2.append(timings[d][e][b][0][0])
-                    running_time2_global.append(timings[d][e][b][0][1])
-                    running_time2_shared.append(timings[d][e][b][0][2])
-            create_subfig(seq_time2, running_time2_global, running_time2_shared,
-                    np.asarray(n_bins2), ax2, width, 'Number of bins',
-                    '(SP)', False, amount_of_elements[e])
-            ax4 = plt.subplot(gs[2*(e-start)+3])
-            seq_time4 = []
-            running_time4_global = []
-            running_time4_shared = []
-            n_bins4 = []
-            for d in range(0, len(timings)):
-                for b in range(0, len(timings[d][n])):
-                    n_bins4.append(pow(amount_of_bins[b], (d+1)))
-                    seq_time4.append(timings[d][e][b][0][0])
-                    running_time4_global.append(timings[d][e][b][0][1])
-                    running_time4_shared.append(timings[d][e][b][0][2])
-            create_subfig(seq_time4, running_time4_global, running_time4_shared,
-                    np.asarray(n_bins4), ax4, width, 'Number of bins',
-                    '(DP)', False, amount_of_elements[e])
-        with warnings.catch_warnings():
-            # This raises warnings since tight layout cannot
-            # handle gridspec automatically. We are going to
-            # do that manually so we can filter the warning.
-            warnings.simplefilter("ignore", UserWarning)
-            gs.tight_layout(fig)
-        plt.savefig(outdir+"/bins_"+str(2*start/max_elements_idx)+"_"+name, dpi=600)
+                for e in given_edges:
+                    # plots x-axis: n_elements, y_axis1: timings, y_axis2: speedup
+                    if e:
+                        ax_f = plt.subplot(gs[4])
+                    else:
+                        ax_f = plt.subplot(gs[2])
+                    seq_time_f = df.loc[(df['method'] == 'cpu')
+                            & (df['ftype'] == 'float32')
+                            & (df['n_dims'] == d)
+                            & (df['n_bins'] == b)
+                            & (df['given_edges'] == e)
+                            & (df['device_samples'] == p)]['time_mean'].tolist()
+                    running_time_global_f = df.loc[(df['method'] == 'gpu_global')
+                            & (df['ftype'] == 'float32')
+                            & (df['n_dims'] == d)
+                            & (df['n_bins'] == b)
+                            & (df['given_edges'] == e)
+                            & (df['device_samples'] == p)]['time_mean'].tolist()
+                    running_time_shared_f = df.loc[(df['method'] == 'gpu_shared')
+                            & (df['ftype'] == 'float32')
+                            & (df['n_dims'] == d)
+                            & (df['n_bins'] == b)
+                            & (df['given_edges'] == e)
+                            & (df['device_samples'] == p)]['time_mean'].tolist()
+                    n_elements_f = df.loc[(df['method'] == 'cpu')
+                            & (df['ftype'] == 'float32')
+                            & (df['n_dims'] == d)
+                            & (df['n_bins'] == b)
+                            & (df['given_edges'] == e)
+                            & (df['device_samples'] == p)]['time_mean'].tolist()
+                    # print "looking with d: ", d, " b: ", b, " e: ", e, " p: ", p
+                    # print "seq_time_f\n", seq_time_f
+                    # print "running_time_global_f\n", running_time_global_f
+                    # print "running_time_shared_f\n", running_time_shared_f
+                    # print "n_elements_f\n", n_elements_f
+                    create_subfig(seq_time_f, running_time_global_f,
+                            running_time_shared_f, np.asarray(n_elements_f), ax_f,
+                            width, 'Number of elements', '(SP)', e, b)
+                    # Next double precision
+                    # plots x-axis: n_elements, y_axis1: timings, y_axis2: speedup
+                    if e:
+                        ax_d = plt.subplot(gs[5])
+                    else:
+                        ax_d = plt.subplot(gs[3])
+                    seq_timed_d = df.loc[(df['method'] == 'cpu')
+                            & (df['ftype'] == 'float64')
+                            & (df['n_dims'] == d)
+                            & (df['n_bins'] == b)
+                            & (df['given_edges'] == e)
+                            & (df['device_samples'] == p)]['time_mean'].tolist()
+                    running_time_global_d = df.loc[(df['method'] == 'gpu_global')
+                            & (df['ftype'] == 'float64')
+                            & (df['n_dims'] == d)
+                            & (df['n_bins'] == b)
+                            & (df['given_edges'] == e)
+                            & (df['device_samples'] == p)]['time_mean'].tolist()
+                    running_time_shared_d = df.loc[(df['method'] == 'gpu_shared')
+                            & (df['ftype'] == 'float64')
+                            & (df['n_dims'] == d)
+                            & (df['n_bins'] == b)
+                            & (df['given_edges'] == e)
+                            & (df['device_samples'] == p)]['time_mean'].tolist()
+                    n_elements_d = df.loc[(df['method'] == 'cpu')
+                            & (df['ftype'] == 'float64')
+                            & (df['n_dims'] == d)
+                            & (df['n_bins'] == b)
+                            & (df['given_edges'] == e)
+                            & (df['device_samples'] == p)]['time_mean'].tolist()
+
+                    create_subfig(seq_timed_d, running_time_global_d,
+                            running_time_shared_d, np.asarray(n_elements_d), ax_d,
+                            width, 'Number of elements', '(DP)', e, b)
+                    # plt.tight_layout()
+                    with warnings.catch_warnings():
+                        # This raises warnings since tight layout cannot
+                        # handle gridspec automatically. We are going to
+                        # do that manually so we can filter the warning.
+                        warnings.simplefilter("ignore", UserWarning)
+                        gs.tight_layout(fig)
+                if p:
+                    fig_name = outdir+"/n_dims_"+str(d)+"_n_bins_"+str(b)+"_with-device-samples_"+name
+                else:
+                    fig_name = outdir+"/n_dims_"+str(d)+"_n_bins_"+str(b)+"_"+name
+                plt.savefig(fig_name, dpi=600)
 
 
 def create_subfig(seq_time1, running_time1_global, running_time1_shared,
-        n_elements, ax1, width, x_name, title, not_using_bins, amount):
+        n_elements, ax1, width, x_name, title, given_edges, amount):
     """
     This method is called from plot_timings(). Subplots with timings and
     speedup are created. It handles the annotations and formatting.
     """
-    if not_using_bins:
-        plot_title = title + " with " + "{:.0E}".format(amount) + " bins"
+    if given_edges:
+        plot_title = (title + " with " + "{:.0E}".format(amount) + " bins\n"
+            + "and given edges"
+        )
     else:
-        plot_title = title + " with " + "{:.0E}".format(amount) + " elements"
+        plot_title = (title + " with " + "{:.0E}".format(amount) + " bins\n"
+            + "and no given edges"
+        )
     ax1.set_title(plot_title, fontsize=10)
     ax1.grid(b=True, which='major')
     ax1.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
@@ -481,7 +485,7 @@ if __name__ == '__main__':
             '''Make a test with all versions and create plots to the directory
             given with `--outdir`''')
     args = parser.parse_args()
-
+    ftype = np.float64
     if args.single_precision and not args.all_precisions and not args.full:
         ftype = np.float32
 
@@ -515,52 +519,71 @@ if __name__ == '__main__':
         n_trials = 10
         timings = []
 
-        all_dims[1, 2, 3]
-        # Calculate how many events can be created. By using three dimensions
-        # and doubles each event takes 3*8 = 24 bytes memory.
-        mem = virtual_memory()
-        available_memory = mem.available
-        power_elements = 0
-        while available_memory > (10**power_elements)*24:
-            power_elements += 1;
-        all_elelements = np.logspace(4, power_elements, power_elements-3)
+        all_dims = [1, 2, 3]
+        all_elements = np.logspace(5, 9, 5)
         all_bins = np.logspace(1, 4, 4)
         all_ftypes = [np.float32, np.float64]
+        all_device_samples = [False, True]
+        all_given_edges = [False, True]
 
-        for n_dims, n_elements, n_bins, ftype in product(
-                all_dims, all_elements, all_bins, all_ftypes):
+        available_memory, total = cuda.mem_get_info()
+        gpu_attributes = cuda.Device(0).get_attributes()
+        max_threads_per_block = gpu_attributes.get(
+                cuda.device_attribute.MAX_THREADS_PER_BLOCK)
+
+        for n_dims, n_elements, n_bins, ftype, device_samples, given_edges in product(
+                all_dims, all_elements, all_bins, all_ftypes,
+                all_device_samples, all_given_edges):
             n_elements = int(n_elements)
             n_bins = int(n_bins)
+            # Check if everything fits on the GPU. Continue if it is not the case.
+            # One integer is 4 bytes. We need to know how many blocks there are
+            # with their own histogram. We also take the samples into account
+            # and the edges if they are given and need to be copied.
+            dx, mx = divmod(n_elements, max_threads_per_block)
+            grid_dim = dx + (mx>0)
+            # local histograms
+            n_bytes = n_bins**n_dims*grid_dim*4
+
+            if ftype == np.float32:
+                # samples
+                n_bytes += n_dims*n_elements*4
+                if given_edges:
+                    n_bytes += 4*n_bins**n_dims
+            else:
+                # samples
+                n_bytes += n_dims*n_elements*8
+                if given_edges:
+                    n_bytes += 8*n_bins**n_dims
+            if n_bytes > available_memory:
+                continue
 
             info = OrderedDict([
                 ('ftype', ftype.__name__),
                 ('n_dims', n_dims),
                 ('n_elements', n_elements),
                 ('n_bins', n_bins),
+                ('device_samples', device_samples),
+                ('given_edges', given_edges)
             ])
-            input_data, d_input_data = create_array(
-                n_elements=n_elements,
-                n_dims=n_dims,
-                device_array=args.device_array,
-                ftype=ftype
-            )
-            edges = None
-            if args.use_given_edges:
-                edges = create_edges(n_bins=args.bins, n_dims=args.dims,
-                    random=args.use_irregular_edges, ftype=ftype)
-
-            if edges is None and args.use_irregular_edges:
-                if args.bins < 6:
-                    args.bins = 6
-                edges = []
-                for i in range(0, args.dimension):
-                    edges.append(rnd.randint(args.bins/2, 3*args.bins/2))
-            elif edges is None:
-                edges = args.bins
 
             # CPU
             tmp_timings = []
             for i in xrange(n_trials):
+                # Create test data inside the loop to avoid caching
+                input_data, d_input_data = create_array(
+                    n_elements=n_elements,
+                    n_dims=n_dims,
+                    device_array=device_samples,
+                    ftype=ftype
+                )
+                edges = None
+                if given_edges:
+                    edges = create_edges(n_bins=n_bins, n_dims=n_dims,
+                            random=True, ftype=ftype)
+                else:
+                    edges = n_bins
+
                 start = timer()
                 histogram_d_numpy, edges_d = np.histogramdd(
                     input_data, bins=edges, weights=weights
@@ -575,10 +598,24 @@ if __name__ == '__main__':
             tmp_timings = []
             with gpu_hist.GPUHist(ftype=ftype) as histogrammer:
                 for i in xrange(n_trials):
+                    # Create test data inside the loop to avoid caching
+                    input_data, d_input_data = create_array(
+                        n_elements=n_elements,
+                        n_dims=n_dims,
+                        device_array=device_samples,
+                        ftype=ftype
+                    )
+                    edges = None
+                    if given_edges:
+                        edges = create_edges(n_bins=n_bins, n_dims=n_dims,
+                                random=True, ftype=ftype)
+                    else:
+                        edges = n_bins
+
                     start = timer()
                     histogram_gpu_global, edges_gpu_global = histogrammer.get_hist(
                         sample=d_input_data, bins=edges, shared=False,
-                        dims=args.dims, number_of_events=n_elements*n_dims
+                        dims=n_dims, number_of_events=n_elements
                     )
                     end = timer()
                     tmp_timings.append(end - start)
@@ -590,10 +627,24 @@ if __name__ == '__main__':
             tmp_timings = []
             with gpu_hist.GPUHist(ftype=ftype) as histogrammer:
                 for i in xrange(n_trials):
+                    # Create test data inside the loop to avoid caching
+                    input_data, d_input_data = create_array(
+                        n_elements=n_elements,
+                        n_dims=n_dims,
+                        device_array=device_samples,
+                        ftype=ftype
+                    )
+                    edges = None
+                    if given_edges:
+                        edges = create_edges(n_bins=n_bins, n_dims=n_dims,
+                                random=True, ftype=ftype)
+                    else:
+                        edges = n_bins
+
                     start = timer()
                     histogram_gpu_shared, edges_gpu_shared = histogrammer.get_hist(
                         sample=d_input_data, bins=edges, shared=True,
-                        dims=args.dims, number_of_events=n_elements*n_dims
+                        dims=n_dims, number_of_events=n_elements
                     )
                     end = timer()
                     tmp_timings.append(end - start)
@@ -602,9 +653,9 @@ if __name__ == '__main__':
             )
 
         if args.device_data:
-            name = "test_device_data"
+            name = "Speedup_test_device_data"
         else:
-            name = "test_host_data"
+            name = "Speedup_test_host_data"
         df = pd.DataFrame(timings)
         df.sort_values(by=['ftype', 'n_dims', 'n_elements', 'n_bins',
                            'method'], inplace=True)
@@ -614,6 +665,7 @@ if __name__ == '__main__':
         print df
         if args.outdir is not None:
             df.to_csv(os.path.join(args.outdir, name + '.csv'))
+            plot_timings(df, args.outdir, name)
             # TODO: make this compatible with Pandas DataFrame timings
             # plot_timings(timings, tests, amount_of_elements, amount_of_bins,
             #         args.outdir, name, args.device_data, max_elements_idx)
