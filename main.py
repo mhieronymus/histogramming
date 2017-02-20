@@ -40,7 +40,7 @@ import pandas as pd
 import pycuda.autoinit
 import pycuda.driver as cuda
 
-import histogrammer.gpu_hist
+import gpu_hist
 
 FTYPE = np.float64
 
