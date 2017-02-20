@@ -65,9 +65,19 @@ def create_array(n_elements, n_dims, device_array, seed=0, ftype=FTYPE):
     rand = np.random.RandomState(seed)
     values = rand.normal(size=(n_elements, n_dims)).astype(ftype)
     if device_array:
-        d_values = cuda.mem_alloc(values.nbytes)
-        cuda.memcpy_htod(d_values, values)
-        return values, d_values
+        try:
+            d_values = cuda.mem_alloc(values.nbytes)
+            cuda.memcpy_htod(d_values, values)
+            return values, d_values
+        except:
+            print "Error at allocating memory"
+            available_memory, total = cuda.mem_get_info()
+            print ("You have %d Mbytes memory. Trying to allocate %d"
+                " bytes (%d Mbytes) of memory\n"
+                % (available_memory/(1024*1024), values.nbytes,
+                values.nbytes/(1024*1024))
+            )
+            return values, values
     else:
         return values, values
 
@@ -226,7 +236,6 @@ def plot_timings(df, outdir, name):
     path = [outdir]
     mkdir(os.path.join(*path), warn=False)
     width = 1.0
-    # TODO: Loop over n_dims, n_bins
     n_dims = df['n_dims'].max()
     min_dims = df['n_dims'].min()
     n_bins = np.log10(df['n_bins'].max())
@@ -244,13 +253,14 @@ def plot_timings(df, outdir, name):
                 # We start with single precision and subject to number of elements
                 # We compare the speed with given edges and without
                 fig = plt.figure()
+                no_subplots = True
                 gs = gridspec.GridSpec(4, 2, width_ratios=[1,1],
                         height_ratios=[0.5, 40, 40, 0.1])
                 if p:
-                    plot_title = ('Histogram: Speedup and runtime with CPU and GPU\n'
+                    plot_title = ('Histogram: Speedup and runtime with CPU and GPU (' + str(d) + 'D)\n'
                             'using already allocated device arrays')
                 else:
-                    plot_title = 'Histogram: Speedup and runtime with CPU and GPU'
+                    plot_title = 'Histogram: Speedup and runtime with CPU and GPU (' + str(d) + 'D)'
                 plt.suptitle(plot_title, fontsize=16)
 
                 for e in given_edges:
@@ -282,22 +292,20 @@ def plot_timings(df, outdir, name):
                             & (df['n_dims'] == d)
                             & (df['n_bins'] == b)
                             & (df['given_edges'] == e)
-                            & (df['device_samples'] == p)]['time_mean'].tolist()
-                    # print "looking with d: ", d, " b: ", b, " e: ", e, " p: ", p
-                    # print "seq_time_f\n", seq_time_f
-                    # print "running_time_global_f\n", running_time_global_f
-                    # print "running_time_shared_f\n", running_time_shared_f
-                    # print "n_elements_f\n", n_elements_f
-                    create_subfig(seq_time_f, running_time_global_f,
-                            running_time_shared_f, np.asarray(n_elements_f), ax_f,
-                            width, 'Number of elements', '(SP)', e, b)
+                            & (df['device_samples'] == p)]['n_elements'].tolist()
+
+                    if seq_time_f:
+                        no_subplots = False
+                        create_subfig(seq_time_f, running_time_global_f,
+                                running_time_shared_f, np.asarray(n_elements_f), ax_f,
+                                width, 'Number of elements', '(SP)', e, b)
                     # Next double precision
                     # plots x-axis: n_elements, y_axis1: timings, y_axis2: speedup
                     if e:
                         ax_d = plt.subplot(gs[5])
                     else:
                         ax_d = plt.subplot(gs[3])
-                    seq_timed_d = df.loc[(df['method'] == 'cpu')
+                    seq_time_d = df.loc[(df['method'] == 'cpu')
                             & (df['ftype'] == 'float64')
                             & (df['n_dims'] == d)
                             & (df['n_bins'] == b)
@@ -320,23 +328,28 @@ def plot_timings(df, outdir, name):
                             & (df['n_dims'] == d)
                             & (df['n_bins'] == b)
                             & (df['given_edges'] == e)
-                            & (df['device_samples'] == p)]['time_mean'].tolist()
+                            & (df['device_samples'] == p)]['n_elements'].tolist()
 
-                    create_subfig(seq_timed_d, running_time_global_d,
-                            running_time_shared_d, np.asarray(n_elements_d), ax_d,
-                            width, 'Number of elements', '(DP)', e, b)
-                    # plt.tight_layout()
+                    if seq_time_d:
+                        no_subplots = False
+                        create_subfig(seq_time_d, running_time_global_d,
+                                running_time_shared_d, np.asarray(n_elements_d), ax_d,
+                                width, 'Number of elements', '(DP)', e, b)
+
                     with warnings.catch_warnings():
                         # This raises warnings since tight layout cannot
                         # handle gridspec automatically. We are going to
                         # do that manually so we can filter the warning.
-                        warnings.simplefilter("ignore", UserWarning)
-                        gs.tight_layout(fig)
+                        if seq_time_d:
+                            warnings.simplefilter("ignore", UserWarning)
+                            gs.tight_layout(fig)
                 if p:
                     fig_name = outdir+"/n_dims_"+str(d)+"_n_bins_"+str(b)+"_with-device-samples_"+name
                 else:
                     fig_name = outdir+"/n_dims_"+str(d)+"_n_bins_"+str(b)+"_"+name
-                plt.savefig(fig_name, dpi=600)
+                if not no_subplots:
+                    plt.savefig(fig_name, dpi=600)
+                plt.close(fig)
 
 
 def create_subfig(seq_time1, running_time1_global, running_time1_shared,
@@ -525,8 +538,6 @@ if __name__ == '__main__':
         all_ftypes = [np.float32, np.float64]
         all_device_samples = [False, True]
         all_given_edges = [False, True]
-
-        available_memory, total = cuda.mem_get_info()
         gpu_attributes = cuda.Device(0).get_attributes()
         max_threads_per_block = gpu_attributes.get(
                 cuda.device_attribute.MAX_THREADS_PER_BLOCK)
@@ -555,8 +566,12 @@ if __name__ == '__main__':
                 n_bytes += n_dims*n_elements*8
                 if given_edges:
                     n_bytes += 8*n_bins**n_dims
+            available_memory, total = cuda.mem_get_info()
             if n_bytes > available_memory:
                 continue
+            # main.py lline 68, d_values = cuda.mem_alloc(values.nbytes)
+            # out of memory with
+            # OrderedDict([('ftype', 'float64'), ('n_dims', 3), ('n_elements', 100,000,000), ('n_bins', 10), ('device_samples', True), ('given_edges', False)])
 
             info = OrderedDict([
                 ('ftype', ftype.__name__),
@@ -574,13 +589,13 @@ if __name__ == '__main__':
                 input_data, d_input_data = create_array(
                     n_elements=n_elements,
                     n_dims=n_dims,
-                    device_array=device_samples,
+                    device_array=False,
                     ftype=ftype
                 )
                 edges = None
                 if given_edges:
                     edges = create_edges(n_bins=n_bins, n_dims=n_dims,
-                            random=True, ftype=ftype)
+                            random=False, ftype=ftype)
                 else:
                     edges = n_bins
 
@@ -590,6 +605,8 @@ if __name__ == '__main__':
                 )
                 end = timer()
                 tmp_timings.append(end - start)
+                if isinstance(d_input_data, cuda.DeviceAllocation):
+                    d_input_data.free()
             timings.append(
                 record_timing(method='cpu', info=info, timings=tmp_timings)
             )
@@ -608,7 +625,7 @@ if __name__ == '__main__':
                     edges = None
                     if given_edges:
                         edges = create_edges(n_bins=n_bins, n_dims=n_dims,
-                                random=True, ftype=ftype)
+                                random=False, ftype=ftype)
                     else:
                         edges = n_bins
 
@@ -619,6 +636,8 @@ if __name__ == '__main__':
                     )
                     end = timer()
                     tmp_timings.append(end - start)
+                    if isinstance(d_input_data, cuda.DeviceAllocation):
+                        d_input_data.free()
             timings.append(
                 record_timing(method='gpu_global', info=info, timings=tmp_timings)
             )
@@ -637,7 +656,7 @@ if __name__ == '__main__':
                     edges = None
                     if given_edges:
                         edges = create_edges(n_bins=n_bins, n_dims=n_dims,
-                                random=True, ftype=ftype)
+                                random=False, ftype=ftype)
                     else:
                         edges = n_bins
 
@@ -648,14 +667,13 @@ if __name__ == '__main__':
                     )
                     end = timer()
                     tmp_timings.append(end - start)
+                    if isinstance(d_input_data, cuda.DeviceAllocation):
+                        d_input_data.free()
             timings.append(
                 record_timing(method='gpu_shared', info=info, timings=tmp_timings)
             )
+        name = "Speedup_test_"
 
-        if args.device_data:
-            name = "Speedup_test_device_data"
-        else:
-            name = "Speedup_test_host_data"
         df = pd.DataFrame(timings)
         df.sort_values(by=['ftype', 'n_dims', 'n_elements', 'n_bins',
                            'method'], inplace=True)
@@ -666,9 +684,6 @@ if __name__ == '__main__':
         if args.outdir is not None:
             df.to_csv(os.path.join(args.outdir, name + '.csv'))
             plot_timings(df, args.outdir, name)
-            # TODO: make this compatible with Pandas DataFrame timings
-            # plot_timings(timings, tests, amount_of_elements, amount_of_bins,
-            #         args.outdir, name, args.device_data, max_elements_idx)
         sys.exit()
 
     if args.full:

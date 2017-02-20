@@ -241,13 +241,13 @@ class GPUHist(object):
                 * sizeof_hist_t
             )
         except pycuda._driver.MemoryError:
-            print ("Trying to allocate ",
-                self.n_flat_bins * self.grid_dim[0] * sizeof_hist_t/(1024*1024),
-                " Mbytes of memory. Only ", self.memory/(1024*1024),
-                " Mbytes available.",
-                " self.n_flat_bins: ", self.n_flat_bins,
-                " self.grid_dim[0]: ", self.grid_dim[0],
-                " sizeof_hist_t: ", sizeof_hist_t, "\n"
+            available_memory, total = cuda.mem_get_info()
+            print ("Trying to allocate %d Mbytes for temporary histograms. "
+                "Only %d Mbytes available. self.n_flat_bins: %d"
+                " self.grid_dim[0]: %d sizeof_hist_t: %d\n"
+                % (self.n_flat_bins * self.grid_dim[0] * sizeof_hist_t/(1024*1024),
+                available_memory/(1024*1024), self.n_flat_bins,
+                self.grid_dim[0], sizeof_hist_t)
             )
             raise
 
