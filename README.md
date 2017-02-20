@@ -21,6 +21,6 @@ You are going to need to have the following requirements installed in order to u
 
 If you would like to create benchmark tests with `main.py` or plot some histograms, you need:
  * [matplotlib](http://matplotlib.org/) -- install via pip
- * [psutils](https://pythonhosted.org/psutil/) install via pip
+ * [pandas](http://pandas.pydata.org/) -- install via pip
 
 For further information please visit the [Wiki](https://github.com/PolygonAndPixel/histogramming/wiki)
