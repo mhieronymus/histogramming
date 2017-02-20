@@ -161,11 +161,11 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
         width = 60
         if edges is None:
             edges = np.arange(-360, 360, (720/no_of_bins))
-            rects = ax.bar(edges, histogram, width)
+            ax.bar(edges, histogram, width)
             ax.set_xticks(edges)
             ax.set_xticklabels(edges)
         else:
-            rects = ax.bar(edges[0][0:no_of_bins], histogram, width)
+            ax.bar(edges[0][0:no_of_bins], histogram, width)
             ax.set_xticks(edges[0])
             ax.set_xticklabels(edges[0])
         ax.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
@@ -744,7 +744,7 @@ if __name__ == '__main__':
             device_array=args.device_data,
             ftype=ftype
         )
-        with gpu_hist.GPUHist(FTYPE=FTYPE) as histogrammer:
+        with gpu_hist.GPUHist(ftype=ftype) as histogrammer:
             histogram_s_gpu_shared, edges_s_gpu_shared = histogrammer.get_hist(
                 sample=d_input_data, bins=edges, shared=True,
                 dims=args.dims, number_of_events=len_input
