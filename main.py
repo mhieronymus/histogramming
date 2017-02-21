@@ -84,7 +84,7 @@ def create_array(n_elements, n_dims, device_array, seed=0, ftype=FTYPE):
             return values, d_values
         except pycuda._driver.MemoryError:
             print "Error at allocating memory"
-            available_memory, = cuda.mem_get_info()
+            available_memory = cuda.mem_get_info()[0]
             print ("You have %d Mbytes memory. Trying to allocate %d"
                    " bytes (%d Mbytes) of memory\n"
                    % (available_memory/(1024*1024), values.nbytes,
@@ -601,7 +601,7 @@ if __name__ == '__main__':
                 n_bytes += n_dims*n_elements*8
                 if given_edges:
                     n_bytes += 8*n_bins**n_dims
-            available_memory, = cuda.mem_get_info()
+            available_memory = cuda.mem_get_info()[0]
             if n_bytes > available_memory:
                 continue
 

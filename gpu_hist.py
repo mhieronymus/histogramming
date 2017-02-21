@@ -108,7 +108,7 @@ class GPUHist(object):
             cuda.device_attribute.MAX_THREADS_PER_MULTIPROCESSOR)
         self.mp = gpu_attributes.get(
             cuda.device_attribute.MULTIPROCESSOR_COUNT)
-        self.memory, = cuda.mem_get_info()
+        self.memory = cuda.mem_get_info()[0]
 
         # print "################################################################"
         # print "Your device has following attributes:"
@@ -257,7 +257,7 @@ class GPUHist(object):
                 * sizeof_hist_t
             )
         except pycuda._driver.MemoryError:
-            available_memory, = cuda.mem_get_info()
+            available_memory = cuda.mem_get_info()[0]
             print ("Trying to allocate %d Mbytes for temporary histograms. "
                    "Only %d Mbytes available. self.n_flat_bins: %d"
                    " self.grid_dim[0]: %d sizeof_hist_t: %d\n"
