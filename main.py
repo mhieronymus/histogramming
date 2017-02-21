@@ -70,17 +70,35 @@ def mkdir(directory, mode=0750, warn=True):
         print 'Created directory "%s"' %directory
 
 
-def create_array(n_elements, n_dims, device_array, seed=0, ftype=FTYPE):
+def create_array(n_elements, n_dims, device_array, list_array, seed=0, ftype=FTYPE):
     """Create an array with values between -360 and 360 (could be any other
     range too)"""
     assert n_elements > 0
     assert n_dims > 0
     rand = np.random.RandomState(seed)
     values = rand.normal(size=(n_elements, n_dims)).astype(ftype)
-    if device_array:
+    if device_array or (list_array and n_dims > 3):
         try:
             d_values = cuda.mem_alloc(values.nbytes)
             cuda.memcpy_htod(d_values, values)
+            return values, d_values
+        except pycuda._driver.MemoryError:
+            print "Error at allocating memory"
+            available_memory = cuda.mem_get_info()[0]
+            print ("You have %d Mbytes memory. Trying to allocate %d"
+                   " bytes (%d Mbytes) of memory\n"
+                   % (available_memory/(1024*1024), values.nbytes,
+                      values.nbytes/(1024*1024)))
+            return values, values
+    elif list_array and n_dims < 4:
+        try:
+            # We need a different shape here: Each array in a list shall
+            # contain one dimension of all data.
+            d_values = []
+            for i in xrange(n_dims):
+                tmp_values = values[:][i]
+                d_values.append(cuda.mem_alloc(tmp_values.nbytes))
+                cuda.memcpy_htod(d_values[i], tmp_values)
             return values, d_values
         except pycuda._driver.MemoryError:
             print "Error at allocating memory"
@@ -94,11 +112,26 @@ def create_array(n_elements, n_dims, device_array, seed=0, ftype=FTYPE):
         return values, values
 
 
-def create_weights(n_elements, n_dims, seed=0, ftype=FTYPE):
+def create_weights(n_elements, device_array, seed=0, ftype=FTYPE):
     """Create arbitrary weights for the input. This is not supported by
     gpu_hist.py yet."""
     rand = np.random.RandomState(seed)
-    return rand.uniform(size=(n_dims, n_elements)).astype(ftype)
+    weights = rand.uniform(size=n_elements).astype(ftype)
+    if device_array:
+        try:
+            d_weights = cuda.mem_alloc(weights.nbytes)
+            cuda.memcpy_htod(d_weights, weights)
+            return weights, d_weights
+        except pycuda._driver.MemoryError:
+            print "Error at allocating memory"
+            available_memory = cuda.mem_get_info()[0]
+            print ("You have %d Mbytes memory. Trying to allocate %d"
+                   " bytes (%d Mbytes) of memory\n"
+                   % (available_memory/(1024*1024), weights.nbytes,
+                      weights.nbytes/(1024*1024)))
+            return weights, weights
+    else:
+        return weights, weights
 
 
 def create_edges(n_bins, n_dims, random=False, seed=0, ftype=FTYPE):
@@ -156,7 +189,9 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
     ax = fig.add_subplot(111)
     ax.grid(b=True, which='major')
     ax.grid(b=True, which='minor', linestyle=':')
-
+    print name
+    print histogram
+    print "sum: ", np.sum(histogram)
     if len(np.shape(histogram)) == 1:
         width = 60
         if edges is None:
@@ -494,6 +529,13 @@ if __name__ == '__main__':
         help=
         '''Use device arrays as input data.''')
     parser.add_argument(
+        '--list-data', action='store_true',
+        help=
+        '''Create a list of device arrays as input data. Each array contains
+        one dimension of all samples. This can be done for 1, 2 and 3
+        dimensions. This is overwritten by --device-data and it is ignored
+        if --dims is higher than 3.''')
+    parser.add_argument(
         '--dims', type=int, required=False, default=1,
         help=
         '''Define the number of dimensions for the input data and
@@ -537,17 +579,23 @@ if __name__ == '__main__':
     if args.outdir is not None:
         mkdir(args.outdir, warn=False)
 
-    # TODO: add weights if called to do so
     weights = None
-    #if args.weights:
-    #    weights = create_weights(n_elements, n_dims, ftype=ftype)
+    d_weights = None
+    if args.weights:
+        weights, d_weights = create_weights(n_elements=args.data,
+                                            ftype=ftype,
+                                            device_array=(args.device_data or
+                                                          args.list_data))
+    print "Weights:"
+    print weights
+    print np.sum(weights)
+    print "-------------------------"
 
     input_data, d_input_data = create_array(n_elements=args.data,
                                             n_dims=args.dims,
                                             device_array=args.device_data,
-                                            ftype=ftype)
-    len_input = args.data * args.dims
-
+                                            ftype=ftype,
+                                            list_array=args.list_data)
     edges = None
     if args.use_given_edges:
         edges = create_edges(n_bins=args.bins, n_dims=args.dims,
@@ -622,7 +670,8 @@ if __name__ == '__main__':
                     n_elements=n_elements,
                     n_dims=n_dims,
                     device_array=False,
-                    ftype=ftype
+                    ftype=ftype,
+                    list_array=args.list_data
                 )
                 edges = None
                 if given_edges:
@@ -652,7 +701,8 @@ if __name__ == '__main__':
                         n_elements=n_elements,
                         n_dims=n_dims,
                         device_array=device_samples,
-                        ftype=ftype
+                        ftype=ftype,
+                        list_array=args.list_data
                     )
                     edges = None
                     if given_edges:
@@ -683,7 +733,8 @@ if __name__ == '__main__':
                         n_elements=n_elements,
                         n_dims=n_dims,
                         device_array=device_samples,
-                        ftype=ftype
+                        ftype=ftype,
+                        list_array=args.list_data
                     )
                     edges = None
                     if given_edges:
@@ -721,12 +772,12 @@ if __name__ == '__main__':
         # First with double precision
         with gpu_hist.GPUHist(ftype=ftype) as histogrammer:
             histogram_d_gpu_shared, edges_d_gpu_shared = histogrammer.get_hist(
-                sample=d_input_data, bins=edges, shared=True,
-                dims=args.dims, number_of_events=len_input
+                sample=d_input_data, bins=edges, weights=d_weights, shared=True,
+                dims=args.dims, number_of_events=args.data
             )
             histogram_d_gpu_global, edges_d_gpu_global = histogrammer.get_hist(
-                sample=d_input_data, bins=edges, shared=False,
-                dims=args.dims, number_of_events=len_input
+                sample=d_input_data, bins=edges, weights=d_weights, shared=False,
+                dims=args.dims, number_of_events=args.data
             )
         if edges is None:
             histogram_d_numpy, edges_d = np.histogramdd(input_data,
@@ -742,16 +793,17 @@ if __name__ == '__main__':
             n_elements=args.data,
             n_dims=args.dims,
             device_array=args.device_data,
-            ftype=ftype
+            ftype=ftype,
+            list_array=args.list_data
         )
         with gpu_hist.GPUHist(ftype=ftype) as histogrammer:
             histogram_s_gpu_shared, edges_s_gpu_shared = histogrammer.get_hist(
-                sample=d_input_data, bins=edges, shared=True,
-                dims=args.dims, number_of_events=len_input
+                sample=d_input_data, bins=edges, weights=d_weights, shared=True,
+                dims=args.dims, number_of_events=args.data
             )
             histogram_s_gpu_global, edges_s_gpu_global = histogrammer.get_hist(
-                sample=d_input_data, bins=edges, shared=False,
-                dims=args.dims, number_of_events=len_input
+                sample=d_input_data, bins=edges, weights=d_weights, shared=False,
+                dims=args.dims, number_of_events=args.data
             )
         if edges is None:
             histogram_s_numpy, edges_s = np.histogramdd(input_data,
@@ -781,13 +833,13 @@ if __name__ == '__main__':
         # single precision. Hence the missing "d" or "s" in the name.
         with gpu_hist.GPUHist(ftype=ftype) as histogrammer:
             histogram_gpu_shared, edges_gpu_shared = histogrammer.get_hist(
-                sample=d_input_data, bins=edges, shared=True,
-                dims=args.dims, number_of_events=len_input
+                sample=d_input_data, bins=edges, weights=d_weights, shared=True,
+                dims=args.dims, number_of_events=args.data
             )
         with gpu_hist.GPUHist(ftype=ftype) as histogrammer:
             histogram_gpu_global, edges_gpu_global = histogrammer.get_hist(
-                sample=d_input_data, bins=edges, shared=False,
-                dims=args.dims, number_of_events=len_input
+                sample=d_input_data, bins=edges, weights=d_weights, shared=False,
+                dims=args.dims, number_of_events=args.data
             )
         if args.all_precisions:
             ftype = np.float32
@@ -795,16 +847,17 @@ if __name__ == '__main__':
                 n_elements=args.data,
                 n_dims=args.dims,
                 device_array=args.device_data,
-                ftype=ftype
+                ftype=ftype,
+                list_array=args.list_data
             )
             with gpu_hist.GPUHist(ftype=ftype) as histogrammer:
                 histogram_s_gpu_shared, edges_s_gpu_shared = histogrammer.get_hist(
-                    sample=d_input_data, bins=edges, shared=True,
-                    dims=args.dims, number_of_events=len_input
+                    sample=d_input_data, bins=edges, weights=d_weights, shared=True,
+                    dims=args.dims, number_of_events=args.data
                 )
                 histogram_s_gpu_global, edges_s_gpu_global = histogrammer.get_hist(
-                    sample=d_input_data, bins=edges, shared=False,
-                    dims=args.dims, number_of_events=len_input
+                    sample=d_input_data, bins=edges, weights=d_weights, shared=False,
+                    dims=args.dims, number_of_events=args.data
                 )
             if args.outdir != None:
                 plot_histogram(histogram_gpu_shared, edges_gpu_shared,
@@ -833,8 +886,8 @@ if __name__ == '__main__':
     if args.gpu_shared and not args.gpu_both:
         with gpu_hist.GPUHist(ftype=ftype) as histogrammer:
             histogram_gpu_shared, edges_gpu_shared = histogrammer.get_hist(
-                sample=d_input_data, bins=edges, shared=True,
-                dims=args.dims, number_of_events=len_input
+                sample=d_input_data, bins=edges, weights=d_weights, shared=True,
+                dims=args.dims, number_of_events=args.data
             )
         if args.all_precisions:
             ftype = np.float32
@@ -842,12 +895,13 @@ if __name__ == '__main__':
                 n_elements=args.data,
                 n_dims=args.dims,
                 device_array=args.device_data,
-                ftype=ftype
+                ftype=ftype,
+                list_array=args.list_data
             )
             with gpu_hist.GPUHist(ftype=ftype) as histogrammer:
                 histogram_s_gpu_shared, edges_s_gpu_shared = histogrammer.get_hist(
-                    sample=d_input_data, bins=edges, shared=True,
-                    dims=args.dims, number_of_events=len_input
+                    sample=d_input_data, bins=edges, weights=d_weights, shared=True,
+                    dims=args.dims, number_of_events=args.data
                 )
             if args.outdir != None:
                 plot_histogram(histogram_gpu_shared, edges_gpu_shared,
@@ -868,8 +922,8 @@ if __name__ == '__main__':
     if args.gpu_global and not args.gpu_both:
         with gpu_hist.GPUHist(ftype=ftype) as histogrammer:
             histogram_gpu_global, edges_gpu_global = histogrammer.get_hist(
-                sample=d_input_data, bins=edges, shared=False,
-                dims=args.dims, number_of_events=len_input
+                sample=d_input_data, bins=edges, weights=d_weights, shared=False,
+                dims=args.dims, number_of_events=args.data
             )
         if args.all_precisions:
             ftype = np.float32
@@ -877,12 +931,13 @@ if __name__ == '__main__':
                 n_elements=args.data,
                 n_dims=args.dims,
                 device_array=args.device_data,
-                ftype=ftype
+                ftype=ftype,
+                list_array=args.list_data
             )
             with gpu_hist.GPUHist(ftype=ftype) as histogrammer:
                 histogram_s_gpu_global, edges_s_gpu_global = histogrammer.get_hist(
-                    sample=d_input_data, bins=edges, shared=False,
-                    dims=args.dims, number_of_events=len_input
+                    sample=d_input_data, bins=edges, weights=d_weights, shared=False,
+                    dims=args.dims, number_of_events=args.data
                 )
             if args.outdir != None:
                 plot_histogram(histogram_gpu_global, edges_gpu_global,
@@ -919,7 +974,8 @@ if __name__ == '__main__':
                 n_elements=args.data,
                 n_dims=args.dims,
                 device_array=args.device_data,
-                ftype=ftype
+                ftype=ftype,
+                list_array=args.list_data
             )
             if edges is None:
                 histogram_s_numpy, edges_s = np.histogramdd(
