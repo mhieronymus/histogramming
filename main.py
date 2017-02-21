@@ -189,9 +189,9 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
     ax = fig.add_subplot(111)
     ax.grid(b=True, which='major')
     ax.grid(b=True, which='minor', linestyle=':')
-    print name
-    print histogram
-    print "sum: ", np.sum(histogram)
+    # print name
+    # print histogram
+    # print "sum: ", np.sum(histogram)
     if len(np.shape(histogram)) == 1:
         width = 60
         if edges is None:
@@ -586,10 +586,10 @@ if __name__ == '__main__':
                                             ftype=ftype,
                                             device_array=(args.device_data or
                                                           args.list_data))
-    print "Weights:"
-    print weights
-    print np.sum(weights)
-    print "-------------------------"
+    # print "Weights:"
+    # print weights
+    # print np.sum(weights)
+    # print "-------------------------"
 
     input_data, d_input_data = create_array(n_elements=args.data,
                                             n_dims=args.dims,

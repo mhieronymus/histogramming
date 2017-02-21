@@ -77,7 +77,7 @@ class GPUHist(object):
             c_histotype=self.C_HIST_TYPE,
             c_changetype=self.C_CHANGETYPE
         )
-        include_dirs = ['./gpu_hist']
+        include_dirs = ['/gpu_hist']
         # keep for compiler output, no_extern_c: allow name manling
         # Add -g for debug mode
         module = SourceModule(kernel_code, keep=True,
@@ -107,6 +107,7 @@ class GPUHist(object):
         self.hist_smem_given_edges_weights2 = module.get_function("histogram_smem_atomics_with_edges_weights2")
 
         self.hist_accum = module.get_function("histogram_final_accum")
+        self.hist_accum_weights = module.get_function("histogram_final_accum_weights")
 
         gpu_attributes = cuda.Device(0).get_attributes()
         # See https://documen.tician.de/pycuda/driver.html
@@ -306,7 +307,6 @@ class GPUHist(object):
                       available_memory/(1024*1024), self.n_flat_bins,
                       self.grid_dim[0], sizeof_hist_t))
             raise
-
         if shared:
             # Calculate edges by yourself if no edges are given
             if edges is None:
@@ -347,7 +347,7 @@ class GPUHist(object):
                                        d_tmp_hist, d_max_in, d_min_in,
                                        block=self.block_dim, grid=self.grid_dim,
                                        shared=self.shared)
-                else:
+                else: # with weights
                     # Calculate local histograms with weights
                     if list_of_device_arrays:
                         self.hist_smem_weights2(d_sample[0],
@@ -423,7 +423,7 @@ class GPUHist(object):
                                                           block=self.block_dim,
                                                           grid=self.grid_dim,
                                                           shared=self.shared)
-        else:
+        else: # global memory
             # Calculate edges by yourself if no edges are given
             if edges is None:
                 d_max_in = cuda.mem_alloc(n_dims * sizeof_float_t)
@@ -528,15 +528,15 @@ class GPUHist(object):
                                                            d_weights,
                                                            block=self.block_dim,
                                                            grid=self.grid_dim)
-        #DEBUG Get all tmp histograms and print them
-        tmp_hist = np.zeros(self.n_flat_bins*self.grid_dim[0], dtype=self.HIST_TYPE)
-        cuda.memcpy_dtoh(tmp_hist, d_tmp_hist)
-        print "TMP:"
-        print tmp_hist
-        print np.sum(tmp_hist)
-        self.hist_accum(d_tmp_hist, self.ITYPE(self.grid_dim[0]), self.d_hist,
-                        self.ITYPE(self.n_flat_bins),
-                        block=self.block_dim, grid=self.grid_dim)
+
+        if weights is None:
+            self.hist_accum(d_tmp_hist, self.ITYPE(self.grid_dim[0]), self.d_hist,
+                            self.ITYPE(self.n_flat_bins),
+                            block=self.block_dim, grid=self.grid_dim)
+        else:
+            self.hist_accum_weights(d_tmp_hist, self.ITYPE(self.grid_dim[0]),
+                                    self.d_hist, self.ITYPE(self.n_flat_bins),
+                                    block=self.block_dim, grid=self.grid_dim)
         # Copy the array back and make the right shape
         cuda.memcpy_dtoh(self.hist, self.d_hist)
         histo_shape = ()
@@ -575,6 +575,8 @@ class GPUHist(object):
             d_max_in.free()
         if d_min_in is not None:
             d_min_in.free()
+        if not isinstance(weights, cuda.DeviceAllocation) and not weights is None:
+            d_weights.free()
         # Check if edges had to be flattened before:
         if flattened:
             edges = bins

@@ -65,12 +65,12 @@ __device__ fType atomicAddfType(fType *address, fType val)
 {
     changeType* address_as_ull = (changeType*) address;
     changeType old = *address_as_ull, assumed;
-    while(val != __change_as_fType(old))
+    do
     {
         assumed = old;
         old = atomicCAS(address_as_ull, assumed,
                         __fType_as_change(val + __change_as_fType(assumed)));
-    }
+    } while(assumed != old);
     return __change_as_fType(old);
 }
 
@@ -502,7 +502,7 @@ __global__ void histogram_smem_atomics_weights(const fType *in,  const iType len
         // Avoid illegal memory access
         if(current_bin < no_of_flat_bins)
         {
-            atomicAddfType(&smem[current_bin], weights[i/no_of_dimensions]);
+          atomicAddfType(&smem[current_bin], weights[i/no_of_dimensions]);
         }
     }
     __syncthreads();
@@ -587,6 +587,27 @@ __global__ void histogram_final_accum(const histoType *in,
         if(current_bin < histo_length)
         {
             histoType total = 0;
+            for(unsigned int j = 0; j < no_of_histograms; j++)
+            {
+                total += in[histo_length * j + current_bin];
+            }
+            out[current_bin] = total;
+        }
+    }
+}
+
+__global__ void histogram_final_accum_weights(const fType *in,
+        const iType no_of_histograms, fType *out, const iType histo_length)
+{
+    unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total_threads = blockDim.x * gridDim.x;
+    // Each thread merges values for another bin
+    for(unsigned int current_bin = gid; current_bin < histo_length;
+            current_bin += total_threads)
+    {
+        if(current_bin < histo_length)
+        {
+            fType total = 0;
             for(unsigned int j = 0; j < no_of_histograms; j++)
             {
                 total += in[histo_length * j + current_bin];
