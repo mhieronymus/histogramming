@@ -86,8 +86,14 @@ class GPUHist(object):
         self.max_min_reduce = module.get_function("max_min_reduce")
         self.hist_gmem = module.get_function("histogram_gmem_atomics")
         self.hist_gmem_given_edges = module.get_function("histogram_gmem_atomics_with_edges")
+        self.hist_gmem_weights = module.get_function("histogram_gmem_atomics_weights")
+        self.hist_gmem_given_edges_weights = module.get_function("histogram_gmem_atomics_with_edges_weights")
+
         self.hist_smem = module.get_function("histogram_smem_atomics")
         self.hist_smem_given_edges = module.get_function("histogram_smem_atomics_with_edges")
+        self.hist_smem_weights = module.get_function("histogram_smem_atomics_weights")
+        self.hist_smem_given_edges_weights = module.get_function("histogram_smem_atomics_with_edges_weights")
+
         self.hist_accum = module.get_function("histogram_final_accum")
 
         gpu_attributes = cuda.Device(0).get_attributes()
@@ -164,7 +170,6 @@ class GPUHist(object):
             n_dims = self.ITYPE(n_dims)
 
         edges = None
-        bins_per_dimension = None
         d_edges_in = None
         d_max_in = None
         d_min_in = None
@@ -185,7 +190,7 @@ class GPUHist(object):
             d_no_of_bins = cuda.mem_alloc(no_of_bins.nbytes)
             cuda.memcpy_htod(d_no_of_bins, no_of_bins)
         elif not isinstance(bins[0], list) and not isinstance(bins[0], np.ndarray):
-            # Use different amoints of bins in each dimension
+            # Use different amounts of bins in each dimension
             self.n_flat_bins = 1
             no_of_bins = []
             for b in bins:
@@ -244,6 +249,11 @@ class GPUHist(object):
         else:
             d_sample = cuda.mem_alloc(sample.nbytes)
             cuda.memcpy_htod(d_sample, sample)
+        if isinstance(weights, cuda.DeviceAllocation):
+            d_weights = weights
+        else:
+            d_weights = cuda.mem_alloc(weights.nbytes)
+            cuda.memcpy_htod(d_weights, weights)
 
         # Calculate the number of blocks needed
         dx, mx = divmod(n_events, self.block_dim[0])
@@ -268,7 +278,7 @@ class GPUHist(object):
 
         if shared:
             # Calculate edges by yourself if no edges are given
-            if edges is None and bins_per_dimension is None:
+            if edges is None:
                 d_max_in = cuda.mem_alloc(n_dims * sizeof_float_t)
                 d_min_in = cuda.mem_alloc(n_dims * sizeof_float_t)
                 self.max_min_reduce(d_sample,
@@ -276,32 +286,58 @@ class GPUHist(object):
                                     self.HIST_TYPE(n_dims), d_max_in, d_min_in,
                                     block=self.block_dim, grid=self.grid_dim,
                                     shared=self.shared)
-                # Calculate local histograms on shared memory on device
-                self.shared = (self.n_flat_bins * sizeof_hist_t)
-                self.hist_smem(d_sample,
-                               self.HIST_TYPE(n_events*n_dims),
-                               self.HIST_TYPE(n_dims),
-                               d_no_of_bins,
-                               self.HIST_TYPE(self.n_flat_bins),
-                               d_tmp_hist, d_max_in, d_min_in,
-                               block=self.block_dim, grid=self.grid_dim,
-                               shared=self.shared)
-            elif bins_per_dimension is None:
-                self.shared = (self.n_flat_bins * sizeof_hist_t)
-                d_edges_in = cuda.mem_alloc(edges.nbytes)
-                cuda.memcpy_htod(d_edges_in, edges)
-                self.hist_smem_given_edges(d_sample,
+                if weights is None:
+                    # Calculate local histograms on shared memory on device
+                    self.shared = (self.n_flat_bins * sizeof_hist_t)
+                    self.hist_smem(d_sample,
+                                   self.HIST_TYPE(n_events*n_dims),
+                                   self.HIST_TYPE(n_dims),
+                                   d_no_of_bins,
+                                   self.HIST_TYPE(self.n_flat_bins),
+                                   d_tmp_hist, d_max_in, d_min_in,
+                                   block=self.block_dim, grid=self.grid_dim,
+                                   shared=self.shared)
+                else:
+                    # Calculate local histograms with weights
+                    self.hist_smem_weights(d_sample,
                                            self.HIST_TYPE(n_events*n_dims),
                                            self.HIST_TYPE(n_dims),
                                            d_no_of_bins,
                                            self.HIST_TYPE(self.n_flat_bins),
-                                           d_tmp_hist, d_edges_in,
+                                           d_tmp_hist, d_max_in, d_min_in,
+                                           d_weights,
                                            block=self.block_dim,
                                            grid=self.grid_dim,
                                            shared=self.shared)
+            else:
+                if weights is None:
+                    self.shared = (self.n_flat_bins * sizeof_hist_t)
+                    d_edges_in = cuda.mem_alloc(edges.nbytes)
+                    cuda.memcpy_htod(d_edges_in, edges)
+                    self.hist_smem_given_edges(d_sample,
+                                               self.HIST_TYPE(n_events*n_dims),
+                                               self.HIST_TYPE(n_dims),
+                                               d_no_of_bins,
+                                               self.HIST_TYPE(self.n_flat_bins),
+                                               d_tmp_hist, d_edges_in,
+                                               block=self.block_dim,
+                                               grid=self.grid_dim,
+                                               shared=self.shared)
+               else:
+                   # Calculate local histograms with edges and weights
+                   self.hist_smem_given_edges_weights(d_sample,
+                                                      self.HIST_TYPE(n_events*n_dims),
+                                                      self.HIST_TYPE(n_dims),
+                                                      d_no_of_bins,
+                                                      self.HIST_TYPE(self.n_flat_bins),
+                                                      d_tmp_hist, d_edges_in,
+                                                      d_weights,
+                                                      block=self.block_dim,
+                                                      grid=self.grid_dim,
+                                                      shared=self.shared)
         else:
             # Calculate edges by yourself if no edges are given
-            if edges is None and bins_per_dimension is None:
+            if edges is None:
                 d_max_in = cuda.mem_alloc(n_dims * sizeof_float_t)
                 d_min_in = cuda.mem_alloc(n_dims * sizeof_float_t)
                 self.max_min_reduce(d_sample,
@@ -309,23 +345,48 @@ class GPUHist(object):
                                     self.HIST_TYPE(n_dims), d_max_in, d_min_in,
                                     block=self.block_dim, grid=self.grid_dim,
                                     shared=self.shared)
-                self.hist_gmem(d_sample,
-                               self.HIST_TYPE(n_events*n_dims),
-                               self.HIST_TYPE(n_dims),
-                               d_no_of_bins, self.HIST_TYPE(self.n_flat_bins),
-                               d_tmp_hist, d_max_in, d_min_in,
-                               block=self.block_dim, grid=self.grid_dim)
-            elif bins_per_dimension is None:
-                d_edges_in = cuda.mem_alloc(edges.nbytes)
-                cuda.memcpy_htod(d_edges_in, edges)
-                self.hist_gmem_given_edges(d_sample,
+                if weights is None:
+                    self.hist_gmem(d_sample,
+                                   self.HIST_TYPE(n_events*n_dims),
+                                   self.HIST_TYPE(n_dims),
+                                   d_no_of_bins,
+                                   self.HIST_TYPE(self.n_flat_bins),
+                                   d_tmp_hist, d_max_in, d_min_in,
+                                   block=self.block_dim, grid=self.grid_dim)
+                else:
+                    # Calculate global histograms with weights
+                    self.hist_gmem_weights(d_sample,
                                            self.HIST_TYPE(n_events*n_dims),
                                            self.HIST_TYPE(n_dims),
                                            d_no_of_bins,
                                            self.HIST_TYPE(self.n_flat_bins),
-                                           d_tmp_hist, d_edges_in,
+                                           d_tmp_hist, d_max_in, d_min_in,
+                                           d_weights,
                                            block=self.block_dim,
                                            grid=self.grid_dim)
+            else:
+                d_edges_in = cuda.mem_alloc(edges.nbytes)
+                cuda.memcpy_htod(d_edges_in, edges)
+                if weights is None:
+                    self.hist_gmem_given_edges(d_sample,
+                                               self.HIST_TYPE(n_events*n_dims),
+                                               self.HIST_TYPE(n_dims),
+                                               d_no_of_bins,
+                                               self.HIST_TYPE(self.n_flat_bins),
+                                               d_tmp_hist, d_edges_in,
+                                               block=self.block_dim,
+                                               grid=self.grid_dim)
+                else:
+                    # Calculate global histograms with edges and weights
+                    self.hist_gmem_given_edges_weights(d_sample,
+                                                       self.HIST_TYPE(n_events*n_dims),
+                                                       self.HIST_TYPE(n_dims),
+                                                       d_no_of_bins,
+                                                       self.HIST_TYPE(self.n_flat_bins),
+                                                       d_tmp_hist, d_edges_in,
+                                                       d_weights,
+                                                       block=self.block_dim,
+                                                       grid=self.grid_dim)
 
         self.hist_accum(d_tmp_hist, self.ITYPE(self.grid_dim[0]), self.d_hist,
                         self.HIST_TYPE(self.n_flat_bins),

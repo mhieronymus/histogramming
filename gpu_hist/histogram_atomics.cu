@@ -232,6 +232,107 @@ __global__ void histogram_gmem_atomics_with_edges(const fType *in,
     }
 }
 
+// Takes max and min value for each dimension and the number of bins and
+// returns a histogram with equally sized bins.
+__global__ void histogram_gmem_atomics_weights(const fType *in,  const iType length,
+        const iType no_of_dimensions,  const iType *no_of_bins,
+        const iType no_of_flat_bins, uiType *out, fType *max_in, fType *min_in,
+        const fType *weights)
+{
+    unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int tid = threadIdx.x;
+    unsigned int total_threads = blockDim.x * gridDim.x;
+    // initialize temporary histogram for each block in global memory
+    uiType *gmem = out + no_of_flat_bins * blockIdx.x;
+    // Each thread writes zeros to global memory
+    for(unsigned int i = tid; i < no_of_flat_bins; i += blockDim.x)
+    {
+        gmem[i] = 0;
+    }
+
+    // Process input data by updating the histogram of each block in global
+    // memory. Each thread processes one element with all its dimensions at a
+    // time.
+    for(unsigned int i = gid*no_of_dimensions; i < length;
+        i+=no_of_dimensions*total_threads)
+    {
+        int current_bin = 0;
+        for(unsigned int d = 0; d < no_of_dimensions; d++)
+        {
+            fType bin_width = (max_in[d]-min_in[d])/no_of_bins[d];
+            fType val = in[i + d];
+            // Get the bin in the current dimension
+            int tmp_bin = (val-min_in[d])/bin_width;
+            if(tmp_bin >= no_of_bins[d]) tmp_bin--;
+            // Get the right place in the histogram
+            int power_bins = 1;
+            for(unsigned int k=no_of_dimensions-1; k > d; k--)
+            {
+                power_bins = no_of_bins[k] * power_bins;
+            }
+            current_bin += tmp_bin * power_bins;
+        }
+        // Avoid illegal memory access
+        if(current_bin < no_of_flat_bins)
+        {
+            atomicAdd(&gmem[current_bin], weights[i]);
+        }
+    }
+}
+
+// Takes edges for each dimension and the number of bins and
+// returns a histogram with equally sized bins.
+__global__ void histogram_gmem_atomics_with_edges_weights(const fType *in,
+        const iType length, const iType no_of_dimensions,
+        const iType *no_of_bins, const iType no_of_flat_bins,
+        uiType *out, const fType *edges_in, const fType *weights)
+{
+    unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int tid = threadIdx.x;
+    unsigned int total_threads = blockDim.x * gridDim.x;
+    unsigned int threads_per_block = blockDim.x;
+
+    // initialize temporary histogram for each block in global memory
+    uiType *gmem = out + no_of_flat_bins * blockIdx.x;
+    // Each thread writes zeros to global memory
+    for(unsigned int i = tid; i < no_of_flat_bins; i += threads_per_block)
+    {
+        gmem[i] = 0;
+    }
+    __syncthreads();
+
+    // Process input data by updating the histogram of each block in global
+    // memory.
+    for(unsigned int i = gid*no_of_dimensions; i < length;
+            i += no_of_dimensions*total_threads)
+    {
+        int current_bin = 0;
+        int bins_offset = 0;
+        for(unsigned int d = 0; d < no_of_dimensions; d++)
+        {
+            fType val = in[i + d];
+            int tmp_bin = 0;
+            while(val > edges_in[bins_offset+tmp_bin+1]
+                && tmp_bin < no_of_bins[d])
+            {
+                 tmp_bin++;
+            }
+            int power_bins = 1;
+            for(unsigned int k=no_of_dimensions-1; k > d; k--)
+            {
+                power_bins = no_of_bins[k] * power_bins;
+            }
+            current_bin += tmp_bin * power_bins;
+            bins_offset += no_of_bins[d]+1;
+        }
+        // Avoid illegal memory access
+        if(current_bin < no_of_flat_bins)
+        {
+            atomicAdd(&gmem[current_bin], weights[i]);
+        }
+    }
+}
+
 __global__ void histogram_smem_atomics(const fType *in,  const iType length,
         const iType no_of_dimensions,  const iType *no_of_bins,
         const iType no_of_flat_bins, uiType *out, fType *max_in, fType *min_in)
@@ -333,6 +434,120 @@ __global__ void histogram_smem_atomics_with_edges(const fType *in,
         if(current_bin < no_of_flat_bins)
         {
             atomicAdd(&smem[current_bin], 1);
+        }
+    }
+    __syncthreads();
+
+    // Write partial histograms in global memory
+    uiType *overall_out = &out[blockIdx.x * no_of_flat_bins];
+    for(unsigned int i = tid; i < no_of_flat_bins;  i+= threads_per_block)
+    {
+        overall_out[i] = smem[i];
+    }
+}
+
+__global__ void histogram_smem_atomics_weights(const fType *in,  const iType length,
+        const iType no_of_dimensions,  const iType *no_of_bins,
+        const iType no_of_flat_bins, uiType *out, fType *max_in, fType *min_in,
+        const fType *weights)
+{
+    unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int tid = threadIdx.x;
+    unsigned int total_threads = blockDim.x * gridDim.x;
+    unsigned int threads_per_block = blockDim.x;
+
+    // initialize temporary accumulation array in shared memory
+    extern __shared__ uiType smem[];
+    for(unsigned int i = tid; i < no_of_flat_bins;  i+= threads_per_block)
+    {
+        smem[i] = 0;
+    }
+    __syncthreads();
+
+    // Process input data by updating the histogram of each block in global
+    // memory. Each thread processes one element with all its dimensions at a
+    // time.
+    for(unsigned int i = gid*no_of_dimensions; i < length;
+        i+=no_of_dimensions*total_threads)
+    {
+        int current_bin = 0;
+        for(unsigned int d = 0; d < no_of_dimensions; d++)
+        {
+            fType bin_width = (max_in[d]-min_in[d])/no_of_bins[d];
+            fType val = in[i + d];
+            // Get the bin in the current dimension
+            int tmp_bin = (val-min_in[d])/bin_width;
+            if(tmp_bin >= no_of_bins[d]) tmp_bin--;
+            // Get the right place in the histogram
+            int power_bins = 1;
+            for(unsigned int k=no_of_dimensions-1; k > d; k--)
+            {
+                power_bins = no_of_bins[k] * power_bins;
+            }
+            current_bin += tmp_bin * power_bins;
+        }
+        // Avoid illegal memory access
+        if(current_bin < no_of_flat_bins)
+        {
+            atomicAdd(&smem[current_bin], weights[i]);
+        }
+    }
+    __syncthreads();
+    // Write partial histograms in global memory
+    out = &out[blockIdx.x * no_of_flat_bins];
+    for(unsigned int i = tid; i < no_of_flat_bins;  i+= threads_per_block)
+    {
+        out[i] = smem[i];
+    }
+}
+
+__global__ void histogram_smem_atomics_with_edges_weights(const fType *in,
+        const iType length, const iType no_of_dimensions,
+        const iType *no_of_bins, const iType no_of_flat_bins,
+        uiType *out, const fType *edges_in, const fType *weights)
+{
+    unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int tid = threadIdx.x;
+    unsigned int total_threads = blockDim.x * gridDim.x;
+    unsigned int threads_per_block = blockDim.x;
+
+    // initialize temporary accumulation array in shared memory
+    extern __shared__ uiType smem[];
+    for(unsigned int i = tid; i < no_of_flat_bins;  i += threads_per_block)
+    {
+        smem[i] = 0;
+    }
+    __syncthreads();
+
+    // Process input data by updating the histogram of each block in global
+    // memory. Each thread processes one element with all its dimensions at a
+    // time.
+    for(unsigned int i = gid*no_of_dimensions; i < length;
+        i += no_of_dimensions*total_threads)
+    {
+        int current_bin = 0;
+        int bins_offset = 0;
+        for(unsigned int d = 0; d < no_of_dimensions; d++)
+        {
+            fType val = in[i + d];
+            int tmp_bin = 0;
+            while(val > edges_in[bins_offset+tmp_bin+1]
+                    && tmp_bin < no_of_bins[d])
+            {
+                tmp_bin++;
+            }
+            int power_bins = 1;
+            for(unsigned int k=no_of_dimensions-1; k > d; k--)
+            {
+                power_bins = no_of_bins[k] * power_bins;
+            }
+            current_bin += tmp_bin * power_bins;
+            bins_offset += no_of_bins[d]+1;
+        }
+        // Avoid illegal memory access
+        if(current_bin < no_of_flat_bins)
+        {
+            atomicAdd(&smem[current_bin], weights[i]);
         }
     }
     __syncthreads();
