@@ -247,7 +247,6 @@ class GPUHist(object):
                 edges = bins
 
         self.set_block_dims(sizeof_c_ftype, n_dims, False)
-
         self.hist = np.zeros(self.n_flat_bins, dtype=self.HIST_TYPE)
         self.d_hist = cuda.mem_alloc(self.n_flat_bins * sizeof_hist_t)
 
@@ -267,8 +266,10 @@ class GPUHist(object):
             d_sample = sample
         elif isinstance(sample[0], cuda.DeviceAllocation):
             d_sample = [s for s in sample]
+            # Dirty hack: Lists of device arrays are supported for 3 dimensions
+            # If less arrays are given we allocate dummy arrays
             for x in xrange(n_dims, 3):
-                d_sample.append(None)
+                d_sample.append(cuda.mem_alloc(8))
         else:
             d_sample = cuda.mem_alloc(sample.nbytes)
             cuda.memcpy_htod(d_sample, sample)
