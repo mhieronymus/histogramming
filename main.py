@@ -96,7 +96,7 @@ def create_array(n_elements, n_dims, device_array, list_array, seed=0, ftype=FTY
             # contain one dimension of all data.
             d_values = []
             for i in xrange(n_dims):
-                tmp_values = values[:][i]
+                tmp_values = np.asarray([v[i] for v in values])
                 d_values.append(cuda.mem_alloc(tmp_values.nbytes))
                 cuda.memcpy_htod(d_values[i], tmp_values)
             return values, d_values
@@ -189,9 +189,7 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
     ax = fig.add_subplot(111)
     ax.grid(b=True, which='major')
     ax.grid(b=True, which='minor', linestyle=':')
-    # print name
-    # print histogram
-    # print "sum: ", np.sum(histogram)
+
     if len(np.shape(histogram)) == 1:
         width = 60
         if edges is None:
@@ -586,10 +584,6 @@ if __name__ == '__main__':
                                             ftype=ftype,
                                             device_array=(args.device_data or
                                                           args.list_data))
-    # print "Weights:"
-    # print weights
-    # print np.sum(weights)
-    # print "-------------------------"
 
     input_data, d_input_data = create_array(n_elements=args.data,
                                             n_dims=args.dims,
