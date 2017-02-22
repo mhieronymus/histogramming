@@ -246,16 +246,7 @@ class GPUHist(object):
             else:
                 edges = bins
 
-        # We use a one-dimensional block and grid.
-        # We use as many threads per block as possible but we are limited
-        # to the shared memory.
-        no_of_threads = (self.shared_memory / sizeof_c_ftype * 2)
-        if no_of_threads > self.max_threads_per_block:
-            overflow = self.max_threads_per_block%n_dims
-            self.block_dim = (self.max_threads_per_block-overflow, 1, 1)
-        else:
-            overflow = no_of_threads%n_dims
-            self.block_dim = (no_of_threads-overflow, 1, 1)
+        self.set_block_dims(sizeof_c_ftype, n_dims, False)
 
         self.hist = np.zeros(self.n_flat_bins, dtype=self.HIST_TYPE)
         self.d_hist = cuda.mem_alloc(self.n_flat_bins * sizeof_hist_t)
@@ -312,6 +303,7 @@ class GPUHist(object):
             if edges is None:
                 d_max_in = cuda.mem_alloc(n_dims * sizeof_float_t)
                 d_min_in = cuda.mem_alloc(n_dims * sizeof_float_t)
+                self.set_block_dims(sizeof_c_ftype, n_dims, True)
                 if list_of_device_arrays:
                     self.max_min_reduce2(d_sample[0],
                                         self.ITYPE(n_events), d_sample[1],
@@ -326,6 +318,7 @@ class GPUHist(object):
                                         block=self.block_dim, grid=self.grid_dim,
                                         shared=self.shared)
                 self.shared = (self.n_flat_bins * sizeof_hist_t)
+                self.set_block_dims(sizeof_c_ftype, n_dims, False)
                 if weights is None:
                     # Calculate local histograms on shared memory on device
                     if list_of_device_arrays:
@@ -428,6 +421,7 @@ class GPUHist(object):
             if edges is None:
                 d_max_in = cuda.mem_alloc(n_dims * sizeof_float_t)
                 d_min_in = cuda.mem_alloc(n_dims * sizeof_float_t)
+                self.set_block_dims(sizeof_c_ftype, n_dims, True)
                 if list_of_device_arrays:
                     self.max_min_reduce2(d_sample[0],
                                         self.ITYPE(n_events),
@@ -441,6 +435,7 @@ class GPUHist(object):
                                         self.ITYPE(n_dims), d_max_in, d_min_in,
                                         block=self.block_dim, grid=self.grid_dim,
                                         shared=self.shared)
+                self.set_block_dims(sizeof_c_ftype, n_dims, False)
                 if weights is None:
                     if list_of_device_arrays:
                         self.hist_gmem2(d_sample[0],
@@ -584,6 +579,30 @@ class GPUHist(object):
         self.calc_time = time.time() - t0
 
         return self.hist, edges
+
+
+    def set_block_dims(self, sizeof_c_ftype, n_dims, max_min_reduction):
+        """Set block dimensions according to the given dimensions and the
+        application. We use a one-dimensional block and grid.
+        We use as many threads per block as possible but we are limited by the
+        shared memory.
+
+        Parameters
+        ----------
+        sizeof_c_ftype: The itemsize of C_FTYPE
+        n_dims: The dimensions of the sample data
+        max_min_reduction: True if dimensions should be set for the reduction
+        """
+        if max_min_reduction:
+            self.block_dim = (self.max_threads_per_block, 1, 1)
+        else:
+            no_of_threads = (self.shared_memory / sizeof_c_ftype * 2)
+            if no_of_threads > self.max_threads_per_block:
+                overflow = self.max_threads_per_block%n_dims
+                self.block_dim = (self.max_threads_per_block-overflow, 1, 1)
+            else:
+                overflow = no_of_threads%n_dims
+                self.block_dim = (no_of_threads-overflow, 1, 1)
 
 
     def set_variables(self, ftype):
