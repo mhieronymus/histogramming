@@ -176,7 +176,7 @@ __global__ void histogram_gmem_atomics(const fType *in,  const iType length,
             // Get the bin in the current dimension
             if(val < min_in[d] || val > max_in[d])
             {
-                current_bin = no_of_bins+1;
+                current_bin = no_of_flat_bins+1;
                 break;
             }
             int tmp_bin = (val-min_in[d])/bin_width;
@@ -288,7 +288,7 @@ __global__ void histogram_gmem_atomics_weights(const fType *in,  const iType len
             // Get the bin in the current dimension
             if(val < min_in[d] || val > max_in[d])
             {
-                current_bin = no_of_bins+1;
+                current_bin = no_of_flat_bins+1;
                 break;
             }
             int tmp_bin = (val-min_in[d])/bin_width;
@@ -399,7 +399,7 @@ __global__ void histogram_smem_atomics(const fType *in,  const iType length,
             // Get the bin in the current dimension
             if(val < min_in[d] || val > max_in[d])
             {
-                current_bin = no_of_bins+1;
+                current_bin = no_of_flat_bins+1;
                 break;
             }
             int tmp_bin = (val-min_in[d])/bin_width;
@@ -524,7 +524,7 @@ __global__ void histogram_smem_atomics_weights(const fType *in,  const iType len
             // Get the bin in the current dimension
             if(val < min_in[d] || val > max_in[d])
             {
-                current_bin = no_of_bins+1;
+                current_bin = no_of_flat_bins+1;
                 break;
             }
             int tmp_bin = (val-min_in[d])/bin_width;
@@ -762,7 +762,7 @@ __global__ void histogram_gmem_atomics2(const fType *in_x,  const iType length,
             // Get the bin in the current dimension
             if(val < min_in[d] || val > max_in[d])
             {
-                current_bin = no_of_bins+1;
+                current_bin = no_of_flat_bins+1;
                 break;
             }
             int tmp_bin = (val-min_in[d])/bin_width;
@@ -876,7 +876,7 @@ __global__ void histogram_gmem_atomics_weights2(const fType *in_x,
             // Get the bin in the current dimension
             if(val < min_in[d] || val > max_in[d])
             {
-                current_bin = no_of_bins+1;
+                current_bin = no_of_flat_bins+1;
                 break;
             }
             int tmp_bin = (val-min_in[d])/bin_width;
@@ -989,7 +989,7 @@ __global__ void histogram_smem_atomics2(const fType *in_x,
             // Get the bin in the current dimension
             if(val < min_in[d] || val > max_in[d])
             {
-                current_bin = no_of_bins+1;
+                current_bin = no_of_flat_bins+1;
                 break;
             }
             int tmp_bin = (val-min_in[d])/bin_width;
@@ -1116,7 +1116,7 @@ __global__ void histogram_smem_atomics_weights2(const fType *in_x,
             // Get the bin in the current dimension
             if(val < min_in[d] || val > max_in[d])
             {
-                current_bin = no_of_bins+1;
+                current_bin = no_of_flat_bins+1;
                 break;
             }
             int tmp_bin = (val-min_in[d])/bin_width;

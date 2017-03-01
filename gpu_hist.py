@@ -145,23 +145,130 @@ class GPUHist(object):
 
 
     def clear(self):
-        """Clear the histogram bins on the GPU"""
-        self.hist = np.zeros(self.n_flat_bins, dtype=self.HIST_TYPE)
-        cuda.memcpy_htod(self.d_hist, self.hist)
+        """Free the edges and the histogram on the GPU."""
+        if self.d_hist is not None:
+            self.d_hist.free() # Should not be needed.
+        if self.d_edges_in is not None:
+            self.d_edges_in.free()
+
+
+    def set_bins(self, bins, dims=1):
+        """Copy the bins to the GPU and reuse them. This is highly recommended
+        if you are using the same bins multiple times.
+
+        Parameters
+        ----------
+        bins: array or list of arrays or list or int
+              An of arrays describing the bin edges along each dimension or
+              a list of arrays describing the bin edges along each dimension or
+              a list describing the number of bins for each dimension or
+              the number of bins for all dimensions.
+        dims: int, optional
+              Give the number of dimensions for your bins. Only needed if `bins`
+              is an integer.
+
+        Returns
+        -------
+        d_no_of_bins: cuda.DeviceAllocation
+                      Pointer to an array with the number of bins in each
+                      dimension on the GPU. Use this in `get_hist` in
+                      `bins`.
+
+        """
+        # Check if number of bins for all dimensions is given or
+        # if number of bins for each dimension is given or
+        # if the edges for each dimension are given
+        if isinstance(bins, int):
+            # Use equally spaced bins in all dimensions
+            self.n_flat_bins = self.ITYPE(self.ITYPE(bins) ** dims)
+            self.no_of_bins = [self.ITYPE(bins) for _ in xrange(dims)]
+            self.no_of_bins = np.asarray(self.no_of_bins)
+            d_no_of_bins = cuda.mem_alloc(self.no_of_bins.nbytes)
+            cuda.memcpy_htod(d_no_of_bins, self.no_of_bins)
+        elif not isinstance(bins[0], list) and not isinstance(bins[0], np.ndarray):
+            # Use different amounts of bins in each dimension
+            self.n_flat_bins = 1
+            self.no_of_bins = []
+            for b in bins:
+                self.n_flat_bins = self.n_flat_bins * b
+                self.no_of_bins.append(self.ITYPE(b))
+            self.no_of_bins = np.asarray(self.no_of_bins)
+            d_no_of_bins = cuda.mem_alloc(self.no_of_bins.nbytes)
+            cuda.memcpy_htod(d_no_of_bins, self.no_of_bins)
+        else:
+            # Use given edges
+            self.n_flat_bins = 1
+            self.no_of_bins = []
+            for b in bins:
+                self.n_flat_bins = self.n_flat_bins * (len(b) - 1)
+                self.no_of_bins.append(self.ITYPE(len(b)-1))
+            self.no_of_bins = np.asarray(self.no_of_bins)
+            d_no_of_bins = cuda.mem_alloc(self.no_of_bins.nbytes)
+            cuda.memcpy_htod(d_no_of_bins, self.no_of_bins)
+            self.n_flat_bins = self.ITYPE(self.n_flat_bins)
+            if isinstance(bins, list):
+                # Different amount of bins for each dimension. Therefore flatten
+                # the list before casting to array
+                self.edges = np.asarray([item for sublist in bins for item in sublist])
+                self.flattened = True
+            else:
+                self.edges = bins
+            self.d_edges_in = cuda.mem_alloc(self.edges.nbytes)
+            cuda.memcpy_htod(self.d_edges_in, self.edges)
+        return d_no_of_bins
 
 
     def get_hist(self, sample, shared=True, bins=10, normed=False,
                  weights=None, dims=1, number_of_events=0):
-        """Retrive histogram with given events and edges
+        """Retrive histogram with given events.
 
         Parameters
         ----------
-        bins: If edges, than with the rightmost edge!
-        dimensions: If a device array is given, provide the number of dims
+        sample: array or cuda.DeviceAllocation or list of cuda.DeviceAllocation
+                The events to be histogrammed. It must be an (N,D) array with N
+                elements and D dimensions or a device array with N x D entries
+                in the desired precision (double or float). A (D) list of (N)
+                device arrays where each array holds one dimension works for 3
+                or less dimensions. The latter should be faster than the other
+                inputs.
+
+        shared: bool, optional
+                If False, global memory will be used for computing the
+                histogram. This should be done for debug purpose or if you want
+                to compare the speed between the global and shared memory
+                approach.
+
+        bins: array or list of arrays or list or int, optional
+              An of arrays describing the bin edges along each dimension or
+              a list of arrays describing the bin edges along each dimension or
+              a list describing the number of bins for each dimension or
+              the number of bins for all dimensions.
+
+        normed: bool, optional
+                If False, returns the number of samples in each bin. If True,
+                return the bin density bin_count / sample_count / bin_volume.
+                This is not implemented yet!
+
+        weights: (N,) array, optional
+                 An array of values w_i for each sample (x_i, y_i, z_i, ...).
+                 Weights are normalized to 1 if normed is True (not implemented
+                 yet). If normed is False, the values of the returned histogram
+                 are equal to the sum of the weights belonging to the samples
+                 falling into each bin.
+
+        dims: int, required if events are cuda.DeviceAllocation
+              Give the number of dimensions for your events.
+
+        number_of_events: int, required if events are cuda.DeviceAllocation or list of cuda.DeviceAllocation
+                          Give the number of events for your device_array.
 
         Returns
         -------
+        hist: ndarray
+              The multidimensional histogram of the events.
 
+        edges: list
+               A list of D arrays describing the bin edges for each dimension.
         """
         t0 = time.time()
         list_of_device_arrays = False
@@ -197,54 +304,20 @@ class GPUHist(object):
                 n_events, n_dims = sample.shape
             n_dims = self.ITYPE(n_dims)
 
-        edges = None
-        d_edges_in = None
+        self.edges = None
+        self.d_edges_in = None
         d_max_in = None
         d_min_in = None
-        flattened = False
+        self.flattened = False
 
         sizeof_hist_t = np.dtype(self.HIST_TYPE).itemsize
         sizeof_c_ftype = np.dtype(self.C_FTYPE).itemsize
         sizeof_float_t = np.dtype(self.FTYPE).itemsize
 
-        # Check if number of bins for all dimensions is given or
-        # if number of bins for each dimension is given or
-        # if the edges for each dimension are given
-        if isinstance(bins, int):
-            # Use equally spaced bins in all dimensions
-            self.n_flat_bins = self.ITYPE(self.ITYPE(bins) ** n_dims)
-            no_of_bins = [self.ITYPE(bins) for _ in xrange(n_dims)]
-            no_of_bins = np.asarray(no_of_bins)
-            d_no_of_bins = cuda.mem_alloc(no_of_bins.nbytes)
-            cuda.memcpy_htod(d_no_of_bins, no_of_bins)
-        elif not isinstance(bins[0], list) and not isinstance(bins[0], np.ndarray):
-            # Use different amounts of bins in each dimension
-            self.n_flat_bins = 1
-            no_of_bins = []
-            for b in bins:
-                self.n_flat_bins = self.n_flat_bins * b
-                no_of_bins.append(self.ITYPE(b))
-            no_of_bins = np.asarray(no_of_bins)
-            d_no_of_bins = cuda.mem_alloc(no_of_bins.nbytes)
-            cuda.memcpy_htod(d_no_of_bins, no_of_bins)
+        if isinstance(bins, cuda.DeviceAllocation):
+            d_no_of_bins = bins
         else:
-            # Use given edges
-            self.n_flat_bins = 1
-            no_of_bins = []
-            for b in bins:
-                self.n_flat_bins = self.n_flat_bins * (len(b) - 1)
-                no_of_bins.append(self.ITYPE(len(b)-1))
-            no_of_bins = np.asarray(no_of_bins)
-            d_no_of_bins = cuda.mem_alloc(no_of_bins.nbytes)
-            cuda.memcpy_htod(d_no_of_bins, no_of_bins)
-            self.n_flat_bins = self.ITYPE(self.n_flat_bins)
-            if isinstance(bins, list):
-                # Different amount of bins for each dimension. Therefore flatten
-                # the list before casting to array
-                edges = np.asarray([item for sublist in bins for item in sublist])
-                flattened = True
-            else:
-                edges = bins
+            d_no_of_bins = set_bins(bins)
 
         self.set_block_dims(sizeof_c_ftype, n_dims, False)
         self.hist = np.zeros(self.n_flat_bins, dtype=self.HIST_TYPE)
@@ -301,7 +374,7 @@ class GPUHist(object):
             raise
         if shared:
             # Calculate edges by yourself if no edges are given
-            if edges is None:
+            if self.edges is None:
                 d_max_in = cuda.mem_alloc(n_dims * sizeof_float_t)
                 d_min_in = cuda.mem_alloc(n_dims * sizeof_float_t)
                 self.set_block_dims(sizeof_c_ftype, n_dims, True)
@@ -368,8 +441,9 @@ class GPUHist(object):
                                                shared=self.shared)
             else:
                 self.shared = (self.n_flat_bins * sizeof_hist_t)
-                d_edges_in = cuda.mem_alloc(edges.nbytes)
-                cuda.memcpy_htod(d_edges_in, edges)
+                if self.d_edges_in is None:
+                    self.d_edges_in = cuda.mem_alloc(self.edges.nbytes)
+                    cuda.memcpy_htod(self.d_edges_in, self.edges)
                 if weights is None:
                     if list_of_device_arrays:
                         self.hist_smem_given_edges2(d_sample[0],
@@ -378,7 +452,7 @@ class GPUHist(object):
                                                    self.ITYPE(n_dims),
                                                    d_no_of_bins,
                                                    self.ITYPE(self.n_flat_bins),
-                                                   d_tmp_hist, d_edges_in,
+                                                   d_tmp_hist, self.d_edges_in,
                                                    block=self.block_dim,
                                                    grid=self.grid_dim,
                                                    shared=self.shared)
@@ -388,7 +462,7 @@ class GPUHist(object):
                                                    self.ITYPE(n_dims),
                                                    d_no_of_bins,
                                                    self.ITYPE(self.n_flat_bins),
-                                                   d_tmp_hist, d_edges_in,
+                                                   d_tmp_hist, self.d_edges_in,
                                                    block=self.block_dim,
                                                    grid=self.grid_dim,
                                                    shared=self.shared)
@@ -401,7 +475,7 @@ class GPUHist(object):
                                                           self.ITYPE(n_dims),
                                                           d_no_of_bins,
                                                           self.ITYPE(self.n_flat_bins),
-                                                          d_tmp_hist, d_edges_in,
+                                                          d_tmp_hist, self.d_edges_in,
                                                           d_weights,
                                                           block=self.block_dim,
                                                           grid=self.grid_dim,
@@ -412,14 +486,14 @@ class GPUHist(object):
                                                           self.ITYPE(n_dims),
                                                           d_no_of_bins,
                                                           self.ITYPE(self.n_flat_bins),
-                                                          d_tmp_hist, d_edges_in,
+                                                          d_tmp_hist, self.d_edges_in,
                                                           d_weights,
                                                           block=self.block_dim,
                                                           grid=self.grid_dim,
                                                           shared=self.shared)
         else: # global memory
             # Calculate edges by yourself if no edges are given
-            if edges is None:
+            if self.edges is None:
                 d_max_in = cuda.mem_alloc(n_dims * sizeof_float_t)
                 d_min_in = cuda.mem_alloc(n_dims * sizeof_float_t)
                 self.set_block_dims(sizeof_c_ftype, n_dims, True)
@@ -479,8 +553,9 @@ class GPUHist(object):
                                                block=self.block_dim,
                                                grid=self.grid_dim)
             else:
-                d_edges_in = cuda.mem_alloc(edges.nbytes)
-                cuda.memcpy_htod(d_edges_in, edges)
+                if self.d_edges_in is None:
+                    self.d_edges_in = cuda.mem_alloc(self.edges.nbytes)
+                    cuda.memcpy_htod(self.d_edges_in, self.edges)
                 if weights is None:
                     if list_of_device_arrays:
                         self.hist_gmem_given_edges2(d_sample[0],
@@ -489,7 +564,7 @@ class GPUHist(object):
                                                    self.ITYPE(n_dims),
                                                    d_no_of_bins,
                                                    self.ITYPE(self.n_flat_bins),
-                                                   d_tmp_hist, d_edges_in,
+                                                   d_tmp_hist, self.d_edges_in,
                                                    block=self.block_dim,
                                                    grid=self.grid_dim)
                     else:
@@ -498,7 +573,7 @@ class GPUHist(object):
                                                    self.ITYPE(n_dims),
                                                    d_no_of_bins,
                                                    self.ITYPE(self.n_flat_bins),
-                                                   d_tmp_hist, d_edges_in,
+                                                   d_tmp_hist, self.d_edges_in,
                                                    block=self.block_dim,
                                                    grid=self.grid_dim)
                 else:
@@ -510,7 +585,7 @@ class GPUHist(object):
                                                            self.ITYPE(n_dims),
                                                            d_no_of_bins,
                                                            self.ITYPE(self.n_flat_bins),
-                                                           d_tmp_hist, d_edges_in,
+                                                           d_tmp_hist, self.d_edges_in,
                                                            d_weights,
                                                            block=self.block_dim,
                                                            grid=self.grid_dim)
@@ -520,7 +595,7 @@ class GPUHist(object):
                                                            self.ITYPE(n_dims),
                                                            d_no_of_bins,
                                                            self.ITYPE(self.n_flat_bins),
-                                                           d_tmp_hist, d_edges_in,
+                                                           d_tmp_hist, self.d_edges_in,
                                                            d_weights,
                                                            block=self.block_dim,
                                                            grid=self.grid_dim)
@@ -537,49 +612,46 @@ class GPUHist(object):
         cuda.memcpy_dtoh(self.hist, self.d_hist)
         histo_shape = ()
         for d in range(0, n_dims):
-            histo_shape += (no_of_bins[d], )
+            histo_shape += (self.no_of_bins[d], )
         self.hist = np.reshape(self.hist, histo_shape)
 
-        if edges is None:
+        if self.edges is None:
             # Calculate the found edges
             max_in = np.zeros(n_dims, dtype=self.FTYPE)
             min_in = np.zeros(n_dims, dtype=self.FTYPE)
             cuda.memcpy_dtoh(max_in, d_max_in)
             cuda.memcpy_dtoh(min_in, d_min_in)
-            edges = []
+            self.edges = []
             # Create some nice edges
             for d in range(0, n_dims):
                 try:
                     edges_d = np.linspace(min_in[d], max_in[d],
-                                          no_of_bins[d]+1, dtype=self.FTYPE)
+                                          self.no_of_bins[d]+1,
+                                          dtype=self.FTYPE)
                 except ValueError:
-                    print min_in[d], max_in[d], no_of_bins[d], self.FTYPE
+                    print min_in[d], max_in[d], self.no_of_bins[d], self.FTYPE
                     raise
-                edges.append(edges_d)
+                self.edges.append(edges_d)
 
         self.d_hist.free()
         d_tmp_hist.free()
-        if not isinstance(sample, cuda.DeviceAllocation) and not isinstance(d_sample, list):
-            # TODO: Move freeing of d_samples to another method (do we actually
-            # want to free it?) Also: free samples: Freeing is only possible
-            # where it has been created.
-            d_sample.free()
 
-        if d_edges_in is not None:
-            d_edges_in.free()
+        if not isinstance(sample, cuda.DeviceAllocation) and not isinstance(d_sample, list):
+            d_sample.free()
+        if not isinstance(weights, cuda.DeviceAllocation) and not weights is None:
+            d_weights.free()
         if d_max_in is not None:
             d_max_in.free()
         if d_min_in is not None:
             d_min_in.free()
-        if not isinstance(weights, cuda.DeviceAllocation) and not weights is None:
-            d_weights.free()
+
         # Check if edges had to be flattened before:
-        if flattened:
-            edges = bins
+        if self.flattened:
+            self.edges = bins
 
         self.calc_time = time.time() - t0
 
-        return self.hist, edges
+        return self.hist, self.edges
 
 
     def set_block_dims(self, sizeof_c_ftype, n_dims, max_min_reduction):
