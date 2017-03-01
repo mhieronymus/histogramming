@@ -174,6 +174,11 @@ __global__ void histogram_gmem_atomics(const fType *in,  const iType length,
             fType bin_width = (max_in[d]-min_in[d])/no_of_bins[d];
             fType val = in[i + d];
             // Get the bin in the current dimension
+            if(val < min_in[d] || val > max_in[d])
+            {
+                current_bin = no_of_bins+1;
+                break;
+            }
             int tmp_bin = (val-min_in[d])/bin_width;
             if(tmp_bin >= no_of_bins[d]) tmp_bin--;
             // Get the right place in the histogram
@@ -229,6 +234,12 @@ __global__ void histogram_gmem_atomics_with_edges(const fType *in,
             {
                  tmp_bin++;
             }
+            if(val > edges_in[bins_offset+tmp_bin+1] || val < edges_in[bins_offset])
+            {
+                bins_offset += no_of_bins[d]+1;
+                current_bin = no_of_flat_bins + 1;
+                break;
+            }
             int power_bins = 1;
             for(unsigned int k=no_of_dimensions-1; k > d; k--)
             {
@@ -275,6 +286,11 @@ __global__ void histogram_gmem_atomics_weights(const fType *in,  const iType len
             fType bin_width = (max_in[d]-min_in[d])/no_of_bins[d];
             fType val = in[i + d];
             // Get the bin in the current dimension
+            if(val < min_in[d] || val > max_in[d])
+            {
+                current_bin = no_of_bins+1;
+                break;
+            }
             int tmp_bin = (val-min_in[d])/bin_width;
             if(tmp_bin >= no_of_bins[d]) tmp_bin--;
             // Get the right place in the histogram
@@ -330,6 +346,12 @@ __global__ void histogram_gmem_atomics_with_edges_weights(const fType *in,
             {
                  tmp_bin++;
             }
+            if(val > edges_in[bins_offset+tmp_bin+1] || val < edges_in[bins_offset])
+            {
+                bins_offset += no_of_bins[d]+1;
+                current_bin = no_of_flat_bins + 1;
+                break;
+            }
             int power_bins = 1;
             for(unsigned int k=no_of_dimensions-1; k > d; k--)
             {
@@ -375,6 +397,11 @@ __global__ void histogram_smem_atomics(const fType *in,  const iType length,
             fType bin_width = (max_in[d]-min_in[d])/no_of_bins[d];
             fType val = in[i + d];
             // Get the bin in the current dimension
+            if(val < min_in[d] || val > max_in[d])
+            {
+                current_bin = no_of_bins+1;
+                break;
+            }
             int tmp_bin = (val-min_in[d])/bin_width;
             if(tmp_bin >= no_of_bins[d]) tmp_bin--;
             // Get the right place in the histogram
@@ -435,6 +462,12 @@ __global__ void histogram_smem_atomics_with_edges(const fType *in,
             {
                 tmp_bin++;
             }
+            if(val > edges_in[bins_offset+tmp_bin+1] || val < edges_in[bins_offset])
+            {
+                bins_offset += no_of_bins[d]+1;
+                current_bin = no_of_flat_bins + 1;
+                break;
+            }
             int power_bins = 1;
             for(unsigned int k=no_of_dimensions-1; k > d; k--)
             {
@@ -489,6 +522,11 @@ __global__ void histogram_smem_atomics_weights(const fType *in,  const iType len
             fType bin_width = (max_in[d]-min_in[d])/no_of_bins[d];
             fType val = in[i + d];
             // Get the bin in the current dimension
+            if(val < min_in[d] || val > max_in[d])
+            {
+                current_bin = no_of_bins+1;
+                break;
+            }
             int tmp_bin = (val-min_in[d])/bin_width;
             if(tmp_bin >= no_of_bins[d]) tmp_bin--;
             // Get the right place in the histogram
@@ -549,6 +587,12 @@ __global__ void histogram_smem_atomics_with_edges_weights(const fType *in,
             {
                 tmp_bin++;
             }
+            if(val > edges_in[bins_offset+tmp_bin+1] || val < edges_in[bins_offset])
+            {
+                bins_offset += no_of_bins[d]+1;
+                current_bin = no_of_flat_bins + 1;
+                break;
+            }
             int power_bins = 1;
             for(unsigned int k=no_of_dimensions-1; k > d; k--)
             {
@@ -560,9 +604,7 @@ __global__ void histogram_smem_atomics_with_edges_weights(const fType *in,
         // Avoid illegal memory access
         if(current_bin < no_of_flat_bins)
         {
-            printf("Thread %%d tries to write to bin %%d with %%d and value %%f\n", gid, current_bin, i, weights[i/no_of_dimensions]);
             atomicAddfType(&smem[current_bin], weights[i/no_of_dimensions]);
-            printf("Thread %%d has smem[%%d] = %%d\n", gid, current_bin, smem[current_bin]);
         }
     }
     __syncthreads();
@@ -718,6 +760,11 @@ __global__ void histogram_gmem_atomics2(const fType *in_x,  const iType length,
             fType bin_width = (max_in[d]-min_in[d])/no_of_bins[d];
             fType val = in[d][i];
             // Get the bin in the current dimension
+            if(val < min_in[d] || val > max_in[d])
+            {
+                current_bin = no_of_bins+1;
+                break;
+            }
             int tmp_bin = (val-min_in[d])/bin_width;
             if(tmp_bin >= no_of_bins[d]) tmp_bin--;
             // Get the right place in the histogram
@@ -774,6 +821,12 @@ __global__ void histogram_gmem_atomics_with_edges2(const fType *in_x,
             {
                  tmp_bin++;
             }
+            if(val > edges_in[bins_offset+tmp_bin+1] || val < edges_in[bins_offset])
+            {
+                bins_offset += no_of_bins[d]+1;
+                current_bin = no_of_flat_bins + 1;
+                break;
+            }
             int power_bins = 1;
             for(unsigned int k=no_of_dimensions-1; k > d; k--)
             {
@@ -821,6 +874,11 @@ __global__ void histogram_gmem_atomics_weights2(const fType *in_x,
             fType bin_width = (max_in[d]-min_in[d])/no_of_bins[d];
             fType val = in[d][i];
             // Get the bin in the current dimension
+            if(val < min_in[d] || val > max_in[d])
+            {
+                current_bin = no_of_bins+1;
+                break;
+            }
             int tmp_bin = (val-min_in[d])/bin_width;
             if(tmp_bin >= no_of_bins[d]) tmp_bin--;
             // Get the right place in the histogram
@@ -877,6 +935,12 @@ __global__ void histogram_gmem_atomics_with_edges_weights2(const fType *in_x,
             {
                  tmp_bin++;
             }
+            if(val > edges_in[bins_offset+tmp_bin+1] || val < edges_in[bins_offset])
+            {
+                bins_offset += no_of_bins[d]+1;
+                current_bin = no_of_flat_bins + 1;
+                break;
+            }
             int power_bins = 1;
             for(unsigned int k=no_of_dimensions-1; k > d; k--)
             {
@@ -923,6 +987,11 @@ __global__ void histogram_smem_atomics2(const fType *in_x,
             fType bin_width = (max_in[d]-min_in[d])/no_of_bins[d];
             fType val = in[d][i];
             // Get the bin in the current dimension
+            if(val < min_in[d] || val > max_in[d])
+            {
+                current_bin = no_of_bins+1;
+                break;
+            }
             int tmp_bin = (val-min_in[d])/bin_width;
             if(tmp_bin >= no_of_bins[d]) tmp_bin--;
             // Get the right place in the histogram
@@ -984,6 +1053,12 @@ __global__ void histogram_smem_atomics_with_edges2(const fType *in_x,
             {
                 tmp_bin++;
             }
+            if(val > edges_in[bins_offset+tmp_bin+1] || val < edges_in[bins_offset])
+            {
+                bins_offset += no_of_bins[d]+1;
+                current_bin = no_of_flat_bins + 1;
+                break;
+            }
             int power_bins = 1;
             for(unsigned int k=no_of_dimensions-1; k > d; k--)
             {
@@ -1039,6 +1114,11 @@ __global__ void histogram_smem_atomics_weights2(const fType *in_x,
             fType bin_width = (max_in[d]-min_in[d])/no_of_bins[d];
             fType val = in[d][i];
             // Get the bin in the current dimension
+            if(val < min_in[d] || val > max_in[d])
+            {
+                current_bin = no_of_bins+1;
+                break;
+            }
             int tmp_bin = (val-min_in[d])/bin_width;
             if(tmp_bin >= no_of_bins[d]) tmp_bin--;
             // Get the right place in the histogram
@@ -1099,6 +1179,12 @@ __global__ void histogram_smem_atomics_with_edges_weights2(const fType *in_x,
                     && tmp_bin < no_of_bins[d])
             {
                 tmp_bin++;
+            }
+            if(val > edges_in[bins_offset+tmp_bin+1] || val < edges_in[bins_offset])
+            {
+                bins_offset += no_of_bins[d]+1;
+                current_bin = no_of_flat_bins + 1;
+                break;
             }
             int power_bins = 1;
             for(unsigned int k=no_of_dimensions-1; k > d; k--)
