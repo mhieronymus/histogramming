@@ -179,8 +179,6 @@ class GPUHist(object):
                       `bins`.
 
         """
-        print bins
-        print "-------------------"
         self.clear()
         # Check if number of bins for all dimensions is given or
         # if number of bins for each dimension is given or
@@ -376,8 +374,7 @@ class GPUHist(object):
                       available_memory/(1024*1024), self.n_flat_bins,
                       self.grid_dim[0], sizeof_hist_t))
             raise
-        print "-----------------------------_"
-        print shared, ", ", self.edges, ", ", list_of_device_arrays, ", ", weights, ", ", self.d_edges_in
+
         if shared:
             # Calculate edges by yourself if no edges are given
             if self.edges is None:
