@@ -129,6 +129,11 @@ class GPUHist(object):
             cuda.device_attribute.MULTIPROCESSOR_COUNT)
         self.memory = cuda.mem_get_info()[0]
 
+        self.d_hist = None
+        self.d_edges_in = None
+        self.edges = None
+        self.flattened = False
+
         # print "################################################################"
         # print "Your device has following attributes:"
         # print "Max threads per block: ", self.max_threads_per_block
@@ -164,8 +169,7 @@ class GPUHist(object):
               a list describing the number of bins for each dimension or
               the number of bins for all dimensions.
         dims: int, optional
-              Give the number of dimensions for your bins. Only needed if `bins`
-              is an integer.
+              Give the number of dimensions for your bins.
 
         Returns
         -------
@@ -175,6 +179,9 @@ class GPUHist(object):
                       `bins`.
 
         """
+        print bins
+        print "-------------------"
+        self.clear()
         # Check if number of bins for all dimensions is given or
         # if number of bins for each dimension is given or
         # if the edges for each dimension are given
@@ -193,7 +200,7 @@ class GPUHist(object):
                 self.n_flat_bins = self.n_flat_bins * b
                 self.no_of_bins.append(self.ITYPE(b))
             self.no_of_bins = np.asarray(self.no_of_bins)
-            d_no_of_bins = cuda.mem_alloc(self.no_of_bins.nbytes)
+            self.d_no_of_bins = cuda.mem_alloc(self.no_of_bins.nbytes)
             cuda.memcpy_htod(d_no_of_bins, self.no_of_bins)
         else:
             # Use given edges
@@ -304,11 +311,8 @@ class GPUHist(object):
                 n_events, n_dims = sample.shape
             n_dims = self.ITYPE(n_dims)
 
-        self.edges = None
-        self.d_edges_in = None
         d_max_in = None
         d_min_in = None
-        self.flattened = False
 
         sizeof_hist_t = np.dtype(self.HIST_TYPE).itemsize
         sizeof_c_ftype = np.dtype(self.C_FTYPE).itemsize
@@ -372,6 +376,8 @@ class GPUHist(object):
                       available_memory/(1024*1024), self.n_flat_bins,
                       self.grid_dim[0], sizeof_hist_t))
             raise
+        print "-----------------------------_"
+        print shared, ", ", self.edges, ", ", list_of_device_arrays, ", ", weights, ", ", self.d_edges_in
         if shared:
             # Calculate edges by yourself if no edges are given
             if self.edges is None:
