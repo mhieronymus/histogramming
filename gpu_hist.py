@@ -317,7 +317,7 @@ class GPUHist(object):
         if isinstance(bins, cuda.DeviceAllocation):
             d_no_of_bins = bins
         else:
-            d_no_of_bins = self.set_bins(bins)
+            d_no_of_bins = self.set_bins(bins, dims=n_dims)
 
         self.set_block_dims(sizeof_c_ftype, n_dims, False)
         self.hist = np.zeros(self.n_flat_bins, dtype=self.HIST_TYPE)
@@ -752,6 +752,11 @@ def test_GPUHist():
         if n_bytes > available_memory:
             continue
 
+        info_string = 'Comparing outputs with n_elements: %i, input type: %s,' \
+                     'dimensions: %i , given_edges: %s, n_bins: %i, ' \
+                     'device_samples: %s' % (n_elements, ftype, n_dims,
+                     given_edges, n_bins, device_samples)
+
         # CPU
         # Create test data inside the loop to avoid caching
         input_data, d_input_data = create_array(
@@ -822,18 +827,18 @@ def test_GPUHist():
             )
             if isinstance(d_input_data, cuda.DeviceAllocation):
                 d_input_data.free()
-        print('Comparing outputs with n_elements: %i, input type: %s,' \
-                     'dimensions: %i , given_edges: %s, n_bins: %i, ' \
-                     'device_samples: %s' % (n_elements, ftype, n_dims,
-                     given_edges, n_bins, device_samples))
+
         passed = check_outputs(histo_np=histogram_numpy,
                                histo_global=histogram_gpu_global,
                                histo_shared=histogram_gpu_shared)
         if passed:
-            print('passed test')
+            print(info_string)
+            print('Passed test')
+            print("----")
         else:
+            print(info_string)
             print('Failed test')
-            exit()
+            print("----")
 
 
 def check_outputs(histo_np, histo_global, histo_shared):
