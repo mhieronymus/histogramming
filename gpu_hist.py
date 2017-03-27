@@ -66,10 +66,7 @@ class GPUHist(object):
         else:
             raise ValueError('Invalid `ftype` specified; must be either'
                              ' `numpy.float32` or `numpy.float64`')
-        # Might be useful. PISA used it for atomic cuda_utils.h with
 
-        # custom atomic_add for floats and doubles.
-        #include_dirs = [os.path.abspath(find_resource('../gpu_hist'))]
         kernel_code = open("gpu_hist/histogram_atomics.cu", "r").read() %dict(
             c_precision_def=self.C_PRECISION_DEF,
             c_ftype=self.C_FTYPE,
@@ -319,7 +316,7 @@ class GPUHist(object):
         if isinstance(bins, cuda.DeviceAllocation):
             d_no_of_bins = bins
         else:
-            d_no_of_bins = set_bins(bins)
+            d_no_of_bins = self.set_bins(bins)
 
         self.set_block_dims(sizeof_c_ftype, n_dims, False)
         self.hist = np.zeros(self.n_flat_bins, dtype=self.HIST_TYPE)
@@ -715,6 +712,219 @@ class GPUHist(object):
 
 def test_GPUHist():
     """A small test which calculates a histogram"""
+    all_dims = [1, 2, 3]
+    all_elements = np.logspace(5, 7, 3)
+    all_bins = np.logspace(1, 4, 4)
+    all_ftypes = [np.float32, np.float64]
+    all_device_samples = [False, True]
+    all_given_edges = [False, True]
+    gpu_attributes = cuda.Device(0).get_attributes()
+    max_threads_per_block = gpu_attributes.get(
+        cuda.device_attribute.MAX_THREADS_PER_BLOCK
+    )
+    for n_dims, n_elements, n_bins, ftype, device_samples, given_edges in product(
+            all_dims, all_elements, all_bins, all_ftypes,
+            all_device_samples, all_given_edges):
+        n_elements = int(n_elements)
+        n_bins = int(n_bins)
+        # Check if everything fits on the GPU. Continue if it is not the case.
+        # One integer is 4 bytes. We need to know how many blocks there are
+        # with their own histogram. We also take the samples into account
+        # and the edges if they are given and need to be copied.
+        dx, mx = divmod(n_elements, max_threads_per_block)
+        grid_dim = dx + (mx > 0)
+        # local histograms
+        n_bytes = n_bins**n_dims*grid_dim*4
+
+        if ftype == np.float32:
+            # samples
+            n_bytes += n_dims*n_elements*4
+            if given_edges:
+                n_bytes += 4*n_bins**n_dims
+        else:
+            # samples
+            n_bytes += n_dims*n_elements*8
+            if given_edges:
+                n_bytes += 8*n_bins**n_dims
+        available_memory = cuda.mem_get_info()[0]
+        if n_bytes > available_memory:
+            continue
+
+        # CPU
+        # Create test data inside the loop to avoid caching
+        input_data, d_input_data = create_array(
+            n_elements=n_elements,
+            n_dims=n_dims,
+            device_array=False,
+            ftype=ftype,
+            list_array=args.list_data
+        )
+        edges = None
+        if given_edges:
+            edges = create_edges(n_bins=n_bins, n_dims=n_dims,
+                                 random=False, ftype=ftype)
+        else:
+            edges = n_bins
+
+        histogram_numpy, edges_numpy = np.histogramdd(
+            input_data, bins=edges, weights=weights
+        )
+        if isinstance(d_input_data, cuda.DeviceAllocation):
+            d_input_data.free()
+
+        # GPU global memory
+        with gpu_hist.GPUHist(ftype=ftype) as histogrammer:
+            # Create test data inside the loop to avoid caching
+            input_data, d_input_data = create_array(
+                n_elements=n_elements,
+                n_dims=n_dims,
+                device_array=device_samples,
+                ftype=ftype,
+                list_array=args.list_data
+            )
+            edges = None
+            if given_edges:
+                edges = create_edges(n_bins=n_bins, n_dims=n_dims,
+                                     random=False, ftype=ftype)
+            else:
+                edges = n_bins
+
+            histogram_gpu_global, edges_gpu_global = histogrammer.get_hist(
+                sample=d_input_data, bins=edges, shared=False,
+                dims=n_dims, number_of_events=n_elements
+            )
+            if isinstance(d_input_data, cuda.DeviceAllocation):
+                d_input_data.free()
+
+        # GPU shared memory
+        tmp_timings = []
+        with gpu_hist.GPUHist(ftype=ftype) as histogrammer:
+            # Create test data inside the loop to avoid caching
+            input_data, d_input_data = create_array(
+                n_elements=n_elements,
+                n_dims=n_dims,
+                device_array=device_samples,
+                ftype=ftype,
+                list_array=args.list_data
+            )
+            edges = None
+            if given_edges:
+                edges = create_edges(n_bins=n_bins, n_dims=n_dims,
+                                     random=False, ftype=ftype)
+            else:
+                edges = n_bins
+
+            histogram_gpu_shared, edges_gpu_shared = histogrammer.get_hist(
+                sample=d_input_data, bins=edges, shared=True,
+                dims=n_dims, number_of_events=n_elements
+            )
+            if isinstance(d_input_data, cuda.DeviceAllocation):
+                d_input_data.free()
+        info_string = 'Comparing outputs with n_elements: %i, input type: %s,' \
+                     'dimensions: %i , given_edges: %s, n_bins: %i, ' \
+                     'device_samples: %s' (n_elements, ftype, n_dims,
+                     given_edges, n_bins, device_samples)
+        passed = check_outputs(histo_np=histogram_numpy,
+                               histo_global=histogram_gpu_global,
+                               histo_shared=histogram_gpu_shared)
+        if passed:
+            logging.debug(info_string)
+            logging.debug('passed test')
+        else:
+            logging.info(info_string)
+            logging.info('Failed test')
+
+
+def check_outputs(histo_np, histo_global, histo_shared):
+    """Compare the given arrays and return True if they are the same and
+    false if at least one of them is different than the other ones.
+    TODO: Add comparison which returns where the error is."""
+    return (histo_np == histo_global and histo_np == histo_shared)
+
+
+def create_edges(n_bins, n_dims, random=False, seed=0, ftype=FTYPE):
+    """Create some random edges given the number of bins for each dimension.
+    Used for test_GPUHist."""
+    edges = []
+    if random:
+        np.random.RandomState(seed)
+        for dim in range(0, n_dims):
+            tmp_bins = rnd.randint(n_bins/2, 3*n_bins/2)
+            bin_width = 720.0/tmp_bins
+            end_bin = 360.0 + bin_width/10
+            edges_d = np.arange(-360.0, end_bin, bin_width, dtype=ftype)
+            edges.append(edges_d)
+        # Irregular dimensions cannot be casted to arrays.
+        return edges
+    else:
+        for dim in range(0, n_dims):
+            bin_width = 720.0/n_bins
+            end_bin = 360.0 + bin_width/10
+            edges_d = np.arange(-360.0, end_bin, bin_width, dtype=ftype)
+            edges.append(edges_d)
+    return np.asarray(edges, dtype=ftype)
+
+
+def create_weights(n_elements, device_array, seed=0, ftype=FTYPE):
+    """Create arbitrary weights for the input. Used for test_GPUHist."""
+    rand = np.random.RandomState(seed)
+    weights = rand.uniform(size=n_elements).astype(ftype)
+    if device_array:
+        try:
+            d_weights = cuda.mem_alloc(weights.nbytes)
+            cuda.memcpy_htod(d_weights, weights)
+            return weights, d_weights
+        except pycuda._driver.MemoryError:
+            print "Error at allocating memory"
+            available_memory = cuda.mem_get_info()[0]
+            print ("You have %d Mbytes memory. Trying to allocate %d"
+                   " bytes (%d Mbytes) of memory\n"
+                   % (available_memory/(1024*1024), weights.nbytes,
+                      weights.nbytes/(1024*1024)))
+            return weights, weights
+    else:
+        return weights, weights
+
+
+def create_array(n_elements, n_dims, device_array, list_array, seed=0, ftype=FTYPE):
+    """Create an arbitrary array for test_GPUHist."""
+    assert n_elements > 0
+    assert n_dims > 0
+    rand = np.random.RandomState(seed)
+    values = rand.normal(size=(n_elements, n_dims)).astype(ftype)
+    if device_array or (list_array and n_dims > 3):
+        try:
+            d_values = cuda.mem_alloc(values.nbytes)
+            cuda.memcpy_htod(d_values, values)
+            return values, d_values
+        except pycuda._driver.MemoryError:
+            print "Error at allocating memory"
+            available_memory = cuda.mem_get_info()[0]
+            print ("You have %d Mbytes memory. Trying to allocate %d"
+                   " bytes (%d Mbytes) of memory\n"
+                   % (available_memory/(1024*1024), values.nbytes,
+                      values.nbytes/(1024*1024)))
+            return values, values
+    elif list_array and n_dims < 4:
+        try:
+            # We need a different shape here: Each array in a list shall
+            # contain one dimension of all data.
+            d_values = []
+            for i in xrange(n_dims):
+                tmp_values = np.asarray([v[i] for v in values])
+                d_values.append(cuda.mem_alloc(tmp_values.nbytes))
+                cuda.memcpy_htod(d_values[i], tmp_values)
+            return values, d_values
+        except pycuda._driver.MemoryError:
+            print "Error at allocating memory"
+            available_memory = cuda.mem_get_info()[0]
+            print ("You have %d Mbytes memory. Trying to allocate %d"
+                   " bytes (%d Mbytes) of memory\n"
+                   % (available_memory/(1024*1024), values.nbytes,
+                      values.nbytes/(1024*1024)))
+            return values, values
+    else:
+        return values, values
 
 if __name__ == '__main__':
     test_GPUHist()
