@@ -833,6 +833,7 @@ def test_GPUHist():
             print('passed test')
         else:
             print('Failed test')
+            exit()
 
 
 def check_outputs(histo_np, histo_global, histo_shared):
@@ -927,5 +928,42 @@ def create_array(n_elements, n_dims, device_array, list_array, seed=0, ftype=FTY
     else:
         return values, values
 
+
+def test_GPUHist_2():
+    """A small test which calculates a histogram. This test always fails.
+    TODO: Fix that"""
+
+    input_data = [np.random.rand(12797), np.random.rand(12797)]
+    edges = [np.arange(0,1.025,0.025), np.arange(0,1.025,0.025)]
+
+    ftype = np.float32
+    histogram_numpy, edges_numpy = np.histogramdd(
+        input_data, bins=edges
+    )
+
+
+    # GPU global memory
+    with GPUHist(ftype=ftype) as histogrammer:
+        histogram_gpu_global, edges_gpu_global = histogrammer.get_hist(
+            sample=input_data, bins=edges, shared=False
+        )
+
+
+    with GPUHist(ftype=ftype) as histogrammer:
+        histogram_gpu_shared, edges_gpu_shared = histogrammer.get_hist(
+            sample=input_data, bins=edges, shared=True
+        )
+
+
+    passed = check_outputs(histo_np=histogram_numpy,
+                           histo_global=histogram_gpu_global,
+                           histo_shared=histogram_gpu_shared)
+    if passed:
+        print "Test passed"
+    else:
+        print 'Failed test'
+
+
 if __name__ == '__main__':
+    test_GPUHist_2()
     test_GPUHist()
