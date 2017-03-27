@@ -24,6 +24,7 @@ authors: M. Hieronymus (mhierony@students.uni-mainz.de)
 date:    February 2017
 """
 
+from itertools import product
 import sys
 import time
 
@@ -560,7 +561,7 @@ class GPUHist(object):
                     if list_of_device_arrays:
                         self.hist_gmem_given_edges2(d_sample[0],
                                                    self.ITYPE(n_events),
-                                                   d_sample[1], d_sampl[2],
+                                                   d_sample[1], d_sample[2],
                                                    self.ITYPE(n_dims),
                                                    d_no_of_bins,
                                                    self.ITYPE(self.n_flat_bins),
@@ -718,13 +719,14 @@ def test_GPUHist():
     all_ftypes = [np.float32, np.float64]
     all_device_samples = [False, True]
     all_given_edges = [False, True]
+    all_list_data = [False, True]
     gpu_attributes = cuda.Device(0).get_attributes()
     max_threads_per_block = gpu_attributes.get(
         cuda.device_attribute.MAX_THREADS_PER_BLOCK
     )
-    for n_dims, n_elements, n_bins, ftype, device_samples, given_edges in product(
+    for n_dims, n_elements, n_bins, ftype, device_samples, given_edges, list_data in product(
             all_dims, all_elements, all_bins, all_ftypes,
-            all_device_samples, all_given_edges):
+            all_device_samples, all_given_edges, all_list_data):
         n_elements = int(n_elements)
         n_bins = int(n_bins)
         # Check if everything fits on the GPU. Continue if it is not the case.
@@ -757,7 +759,7 @@ def test_GPUHist():
             n_dims=n_dims,
             device_array=False,
             ftype=ftype,
-            list_array=args.list_data
+            list_array=list_data
         )
         edges = None
         if given_edges:
@@ -767,20 +769,20 @@ def test_GPUHist():
             edges = n_bins
 
         histogram_numpy, edges_numpy = np.histogramdd(
-            input_data, bins=edges, weights=weights
+            input_data, bins=edges
         )
         if isinstance(d_input_data, cuda.DeviceAllocation):
             d_input_data.free()
 
         # GPU global memory
-        with gpu_hist.GPUHist(ftype=ftype) as histogrammer:
+        with GPUHist(ftype=ftype) as histogrammer:
             # Create test data inside the loop to avoid caching
             input_data, d_input_data = create_array(
                 n_elements=n_elements,
                 n_dims=n_dims,
                 device_array=device_samples,
                 ftype=ftype,
-                list_array=args.list_data
+                list_array=list_data
             )
             edges = None
             if given_edges:
@@ -798,14 +800,14 @@ def test_GPUHist():
 
         # GPU shared memory
         tmp_timings = []
-        with gpu_hist.GPUHist(ftype=ftype) as histogrammer:
+        with GPUHist(ftype=ftype) as histogrammer:
             # Create test data inside the loop to avoid caching
             input_data, d_input_data = create_array(
                 n_elements=n_elements,
                 n_dims=n_dims,
                 device_array=device_samples,
                 ftype=ftype,
-                list_array=args.list_data
+                list_array=list_data
             )
             edges = None
             if given_edges:
@@ -820,19 +822,17 @@ def test_GPUHist():
             )
             if isinstance(d_input_data, cuda.DeviceAllocation):
                 d_input_data.free()
-        info_string = 'Comparing outputs with n_elements: %i, input type: %s,' \
+        print('Comparing outputs with n_elements: %i, input type: %s,' \
                      'dimensions: %i , given_edges: %s, n_bins: %i, ' \
-                     'device_samples: %s' (n_elements, ftype, n_dims,
-                     given_edges, n_bins, device_samples)
+                     'device_samples: %s' % (n_elements, ftype, n_dims,
+                     given_edges, n_bins, device_samples))
         passed = check_outputs(histo_np=histogram_numpy,
                                histo_global=histogram_gpu_global,
                                histo_shared=histogram_gpu_shared)
         if passed:
-            logging.debug(info_string)
-            logging.debug('passed test')
+            print('passed test')
         else:
-            logging.info(info_string)
-            logging.info('Failed test')
+            print('Failed test')
 
 
 def check_outputs(histo_np, histo_global, histo_shared):
