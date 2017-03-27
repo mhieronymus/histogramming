@@ -839,7 +839,8 @@ def check_outputs(histo_np, histo_global, histo_shared):
     """Compare the given arrays and return True if they are the same and
     false if at least one of them is different than the other ones.
     TODO: Add comparison which returns where the error is."""
-    return (histo_np == histo_global and histo_np == histo_shared)
+    return (np.all(np.equal(histo_np, histo_global))
+            and np.all(np.equal(histo_np, histo_shared)))
 
 
 def create_edges(n_bins, n_dims, random=False, seed=0, ftype=FTYPE):
