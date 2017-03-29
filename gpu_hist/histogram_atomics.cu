@@ -11,11 +11,30 @@
 #define CUDART_INF_F __ull_as_fType(0x7ff0000000000000ULL)
 #define CUDART_NEG_INF_F __ull_as_fType(0xfff0000000000000ULL)
 
+// This function is used to convert inf and -inf from ull to ftype.
+// Since ftype is either float32 or float64, there are two ways.
+// float64:
+// Simple converting
+// float32:
+// Converting leads to overflow -> value will be 0. Get the correct sign
+// and return inf.
 __device__ fType __ull_as_fType(unsigned long long int a)
 {
     union {unsigned long long int a; fType b;} u;
     u.a = a;
-    return u.b;
+    fType f = u.b;
+    if(f != 0) return f;
+    // float32
+    if(a == 0x7ff0000000000000ULL)
+    {
+        int inf = 0x7F800000;
+        return *(fType*)&inf;
+    } else
+    {
+        // -inf
+        int neg_inf = 0xff800000;
+        return *(fType*)&neg_inf;
+    }
 }
 
 __device__ fType __change_as_fType(changeType a)
@@ -154,6 +173,7 @@ __global__ void histogram_gmem_atomics(const fType *in,  const iType length,
     unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
     unsigned int tid = threadIdx.x;
     unsigned int total_threads = blockDim.x * gridDim.x;
+
     // initialize temporary histogram for each block in global memory
     histoType *gmem = out + no_of_flat_bins * blockIdx.x;
     // Each thread writes zeros to global memory
@@ -161,7 +181,7 @@ __global__ void histogram_gmem_atomics(const fType *in,  const iType length,
     {
         gmem[i] = 0;
     }
-
+    __syncthreads();
     // Process input data by updating the histogram of each block in global
     // memory. Each thread processes one element with all its dimensions at a
     // time.
@@ -230,7 +250,7 @@ __global__ void histogram_gmem_atomics_with_edges(const fType *in,
             fType val = in[i + d];
             int tmp_bin = 0;
             while(val > edges_in[bins_offset+tmp_bin+1]
-                && tmp_bin < no_of_bins[d])
+                && tmp_bin < no_of_bins[d]-1)
             {
                  tmp_bin++;
             }
@@ -266,6 +286,7 @@ __global__ void histogram_gmem_atomics_weights(const fType *in,  const iType len
     unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
     unsigned int tid = threadIdx.x;
     unsigned int total_threads = blockDim.x * gridDim.x;
+
     // initialize temporary histogram for each block in global memory
     fType *gmem = out + no_of_flat_bins * blockIdx.x;
     // Each thread writes zeros to global memory
@@ -273,7 +294,7 @@ __global__ void histogram_gmem_atomics_weights(const fType *in,  const iType len
     {
         gmem[i] = 0;
     }
-
+    __syncthreads();
     // Process input data by updating the histogram of each block in global
     // memory. Each thread processes one element with all its dimensions at a
     // time.
@@ -342,7 +363,7 @@ __global__ void histogram_gmem_atomics_with_edges_weights(const fType *in,
             fType val = in[i + d];
             int tmp_bin = 0;
             while(val > edges_in[bins_offset+tmp_bin+1]
-                && tmp_bin < no_of_bins[d])
+                && tmp_bin < no_of_bins[d]-1)
             {
                  tmp_bin++;
             }
@@ -458,7 +479,7 @@ __global__ void histogram_smem_atomics_with_edges(const fType *in,
             fType val = in[i + d];
             int tmp_bin = 0;
             while(val > edges_in[bins_offset+tmp_bin+1]
-                    && tmp_bin < no_of_bins[d])
+                    && tmp_bin < no_of_bins[d]-1)
             {
                 tmp_bin++;
             }
@@ -583,7 +604,7 @@ __global__ void histogram_smem_atomics_with_edges_weights(const fType *in,
             fType val = in[i + d];
             int tmp_bin = 0;
             while(val > edges_in[bins_offset+tmp_bin+1]
-                    && tmp_bin < no_of_bins[d])
+                    && tmp_bin < no_of_bins[d]-1)
             {
                 tmp_bin++;
             }
@@ -741,6 +762,7 @@ __global__ void histogram_gmem_atomics2(const fType *in_x,  const iType length,
     unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
     unsigned int tid = threadIdx.x;
     unsigned int total_threads = blockDim.x * gridDim.x;
+
     // initialize temporary histogram for each block in global memory
     histoType *gmem2 = out + no_of_flat_bins * blockIdx.x;
     // Each thread writes zeros to global memory
@@ -749,6 +771,7 @@ __global__ void histogram_gmem_atomics2(const fType *in_x,  const iType length,
         gmem2[i] = 0;
     }
     const fType *in[3] = {in_x, in_y, in_z};
+    __syncthreads();
     // Process input data by updating the histogram of each block in global
     // memory. Each thread processes one element with all its dimensions at a
     // time.
@@ -817,12 +840,14 @@ __global__ void histogram_gmem_atomics_with_edges2(const fType *in_x,
             fType val = in[d][i];
             int tmp_bin = 0;
             while(val > edges_in[bins_offset+tmp_bin+1]
-                && tmp_bin < no_of_bins[d])
+                && tmp_bin < no_of_bins[d]-1)
             {
                  tmp_bin++;
             }
             if(val > edges_in[bins_offset+tmp_bin+1] || val < edges_in[bins_offset])
             {
+                // printf("Thread %%d with value %%f and edges %%f, %%f, length %%d, d %%d, element %%d\n", gid, val,
+                //     edges_in[bins_offset+tmp_bin+1], edges_in[bins_offset], length, d, i);
                 bins_offset += no_of_bins[d]+1;
                 current_bin = no_of_flat_bins + 1;
                 break;
@@ -854,6 +879,7 @@ __global__ void histogram_gmem_atomics_weights2(const fType *in_x,
     unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
     unsigned int tid = threadIdx.x;
     unsigned int total_threads = blockDim.x * gridDim.x;
+
     // initialize temporary histogram for each block in global memory
     fType *gmem = out + no_of_flat_bins * blockIdx.x;
     // Each thread writes zeros to global memory
@@ -862,7 +888,7 @@ __global__ void histogram_gmem_atomics_weights2(const fType *in_x,
         gmem[i] = 0;
     }
     const fType *in[3] = {in_x, in_y, in_z};
-
+    __syncthreads();
     // Process input data by updating the histogram of each block in global
     // memory. Each thread processes one element with all its dimensions at a
     // time.
@@ -931,7 +957,7 @@ __global__ void histogram_gmem_atomics_with_edges_weights2(const fType *in_x,
             fType val = in[d][i];
             int tmp_bin = 0;
             while(val > edges_in[bins_offset+tmp_bin+1]
-                && tmp_bin < no_of_bins[d])
+                && tmp_bin < no_of_bins[d]-1)
             {
                  tmp_bin++;
             }
@@ -1049,7 +1075,7 @@ __global__ void histogram_smem_atomics_with_edges2(const fType *in_x,
             fType val = in[d][i];
             int tmp_bin = 0;
             while(val > edges_in[bins_offset+tmp_bin+1]
-                    && tmp_bin < no_of_bins[d])
+                    && tmp_bin < no_of_bins[d]-1)
             {
                 tmp_bin++;
             }
@@ -1176,7 +1202,7 @@ __global__ void histogram_smem_atomics_with_edges_weights2(const fType *in_x,
             fType val = in[d][i];
             int tmp_bin = 0;
             while(val > edges_in[bins_offset+tmp_bin+1]
-                    && tmp_bin < no_of_bins[d])
+                    && tmp_bin < no_of_bins[d]-1)
             {
                 tmp_bin++;
             }
