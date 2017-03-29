@@ -24,7 +24,7 @@ authors: M. Hieronymus (mhierony@students.uni-mainz.de)
 date:    February 2017
 """
 from __future__ import print_function
-from itertools import product
+
 import sys
 import time
 
@@ -981,4 +981,5 @@ def create_array(n_elements, n_dims, device_array, list_array, seed=0, ftype=FTY
 
 
 if __name__ == '__main__':
+    from itertools import product
     test_GPUHist()
