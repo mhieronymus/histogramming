@@ -131,6 +131,8 @@ class GPUHist(object):
         self.d_edges_in = None
         self.edges = None
         self.flattened = False
+        self.n_flat_bins = None
+        self.no_of_bins = None
 
         # print "################################################################"
         # print "Your device has following attributes:"
@@ -150,9 +152,19 @@ class GPUHist(object):
     def clear(self):
         """Free the edges and the histogram on the GPU."""
         if self.d_hist is not None:
-            self.d_hist.free() # Should not be needed.
+            try:
+                self.d_hist.free() # Should not be needed.
+            except:
+                pass
         if self.d_edges_in is not None:
-            self.d_edges_in.free()
+            try:
+                self.d_edges_in.free()
+            except:
+                pass
+        self.edges = None
+        self.n_flat_bins = None
+        self.no_of_bins = None
+        self.flattened = False
 
 
     def set_bins(self, bins, dims=1):
@@ -222,7 +234,7 @@ class GPUHist(object):
 
 
     def get_hist(self, sample, shared=True, bins=10, normed=False,
-                 weights=None, dims=1, number_of_events=0):
+                 weights=None, dims=1, number_of_events=0, transpose=False):
         """Retrive histogram with given events.
 
         Parameters
@@ -265,6 +277,9 @@ class GPUHist(object):
         number_of_events: int, required if events are cuda.DeviceAllocation or list of cuda.DeviceAllocation
                           Give the number of events for your device_array.
 
+        transpose: bool, optional
+                   If True: transpose sample and bins (if possible)
+
         Returns
         -------
         hist: ndarray
@@ -274,6 +289,7 @@ class GPUHist(object):
                A list of D arrays describing the bin edges for each dimension.
         """
         t0 = time.time()
+
         list_of_device_arrays = False
         # If we got weights, we need to change the type of the histogram from
         # integer to FTYPE

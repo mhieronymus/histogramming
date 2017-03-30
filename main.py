@@ -41,6 +41,7 @@ import pycuda.autoinit
 import pycuda.driver as cuda
 
 import gpu_hist
+from gpu_hist import create_array, create_weights, create_edges
 
 FTYPE = np.float64
 
@@ -68,92 +69,6 @@ def mkdir(directory, mode=0750, warn=True):
             raise err
     else:
         print 'Created directory "%s"' %directory
-
-
-def create_array(n_elements, n_dims, device_array, list_array, seed=0, ftype=FTYPE):
-    """Create an array with values between -360 and 360 (could be any other
-    range too)"""
-    assert n_elements > 0
-    assert n_dims > 0
-    rand = np.random.RandomState(seed)
-    values = rand.normal(size=(n_elements, n_dims)).astype(ftype)
-    if device_array or (list_array and n_dims > 3):
-        try:
-            d_values = cuda.mem_alloc(values.nbytes)
-            cuda.memcpy_htod(d_values, values)
-            return values, d_values
-        except pycuda._driver.MemoryError:
-            print "Error at allocating memory"
-            available_memory = cuda.mem_get_info()[0]
-            print ("You have %d Mbytes memory. Trying to allocate %d"
-                   " bytes (%d Mbytes) of memory\n"
-                   % (available_memory/(1024*1024), values.nbytes,
-                      values.nbytes/(1024*1024)))
-            return values, values
-    elif list_array and n_dims < 4:
-        try:
-            # We need a different shape here: Each array in a list shall
-            # contain one dimension of all data.
-            d_values = []
-            for i in xrange(n_dims):
-                tmp_values = np.asarray([v[i] for v in values])
-                d_values.append(cuda.mem_alloc(tmp_values.nbytes))
-                cuda.memcpy_htod(d_values[i], tmp_values)
-            return values, d_values
-        except pycuda._driver.MemoryError:
-            print "Error at allocating memory"
-            available_memory = cuda.mem_get_info()[0]
-            print ("You have %d Mbytes memory. Trying to allocate %d"
-                   " bytes (%d Mbytes) of memory\n"
-                   % (available_memory/(1024*1024), values.nbytes,
-                      values.nbytes/(1024*1024)))
-            return values, values
-    else:
-        return values, values
-
-
-def create_weights(n_elements, device_array, seed=0, ftype=FTYPE):
-    """Create arbitrary weights for the input. This is not supported by
-    gpu_hist.py yet."""
-    rand = np.random.RandomState(seed)
-    weights = rand.uniform(size=n_elements).astype(ftype)
-    if device_array:
-        try:
-            d_weights = cuda.mem_alloc(weights.nbytes)
-            cuda.memcpy_htod(d_weights, weights)
-            return weights, d_weights
-        except pycuda._driver.MemoryError:
-            print "Error at allocating memory"
-            available_memory = cuda.mem_get_info()[0]
-            print ("You have %d Mbytes memory. Trying to allocate %d"
-                   " bytes (%d Mbytes) of memory\n"
-                   % (available_memory/(1024*1024), weights.nbytes,
-                      weights.nbytes/(1024*1024)))
-            return weights, weights
-    else:
-        return weights, weights
-
-
-def create_edges(n_bins, n_dims, random=False, seed=0, ftype=FTYPE):
-    """Create some random edges given the number of bins for each dimension"""
-    edges = []
-    if random:
-        np.random.RandomState(seed)
-        for dim in range(0, n_dims):
-            tmp_bins = rnd.randint(n_bins/2, 3*n_bins/2)
-            bin_width = 720.0/tmp_bins
-            end_bin = 360.0 + bin_width/10
-            edges_d = np.arange(-360.0, end_bin, bin_width, dtype=ftype)
-            edges.append(edges_d)
-        # Irregular dimensions cannot be casted to arrays.
-        return edges
-    else:
-        for dim in range(0, n_dims):
-            bin_width = 720.0/n_bins
-            end_bin = 360.0 + bin_width/10
-            edges_d = np.arange(-360.0, end_bin, bin_width, dtype=ftype)
-            edges.append(edges_d)
-    return np.asarray(edges, dtype=ftype)
 
 
 def record_timing(method, info, timings):
