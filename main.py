@@ -45,7 +45,7 @@ from gpu_hist import create_array, create_weights, create_edges
 
 FTYPE = np.float64
 
-def mkdir(directory, mode=0750, warn=True):
+def mkdir(directory, mode=0o750, warn=True):
     """Simple wrapper around os.makedirs to create a directory but not raise an
     exception if the dir already exists
 
@@ -62,13 +62,13 @@ def mkdir(directory, mode=0750, warn=True):
     try:
         os.makedirs(directory, mode=mode)
     except OSError as err:
-        if err[0] == 17:
+        if err.errno == 17:
             if warn:
-                print 'Directory "%s" already exists' %directory
+                print('Directory "%s" already exists' %directory)
         else:
-            raise err
+            print("Problem creating directory:", err)
     else:
-        print 'Created directory "%s"' %directory
+        print('Created directory "%s"' %directory)
 
 
 def record_timing(method, info, timings):
@@ -171,7 +171,7 @@ def plot_histogram(histogram, edges, outdir, name, no_of_bins):
         fig.tight_layout()
         fig.savefig(outdir+"/"+name)
     else:
-        print "Plots are only availale for 3 or less dimensions. Aborting"
+        print("Plots are only availale for 3 or less dimensions. Aborting")
 
 
 def plot_timings(df, outdir, name):
@@ -671,7 +671,7 @@ if __name__ == '__main__':
         pd.set_option('display.max_rows', 500)
         pd.set_option('display.max_columns', 500)
         pd.set_option('display.width', 1000)
-        print df
+        print(df)
         if args.outdir is not None:
             df.to_csv(os.path.join(args.outdir, name + '.csv'))
             plot_timings(df, args.outdir, name)
